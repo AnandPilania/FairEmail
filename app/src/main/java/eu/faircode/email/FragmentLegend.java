@@ -16,7 +16,7 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.os.Bundle;
@@ -38,7 +38,7 @@ public class FragmentLegend extends FragmentBase {
     private ViewPager pager;
     private PagerAdapter adapter;
 
-    FragmentLegend setLayout(int layout) {
+    private FragmentLegend setLayout(int layout) {
         this.layout = layout;
         return this;
     }
@@ -58,8 +58,20 @@ public class FragmentLegend extends FragmentBase {
             pager = view.findViewById(R.id.pager);
             adapter = new PagerAdapter(getChildFragmentManager());
             pager.setAdapter(adapter);
-        } else
+        } else {
             view = inflater.inflate(layout, container, false);
+
+            if (layout == R.layout.fragment_legend_synchronization) {
+                view.findViewById(R.id.ibInfoBackoff).setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        Helper.viewFAQ(v.getContext(), 123);
+                    }
+                });
+            }
+        }
+
+        FragmentDialogTheme.setBackground(getContext(), view, false);
 
         return view;
     }
@@ -72,6 +84,16 @@ public class FragmentLegend extends FragmentBase {
         if (layout < 0) {
             TabLayout tabLayout = view.findViewById(R.id.tab_layout);
             tabLayout.setupWithViewPager(pager);
+
+            Bundle args = getArguments();
+            if (args != null) {
+                String tab = args.getString("tab");
+                if ("compose".equals(tab))
+                    pager.setCurrentItem(3);
+
+                args.remove("tab");
+                setArguments(args);
+            }
         }
     }
 
@@ -88,7 +110,7 @@ public class FragmentLegend extends FragmentBase {
 
         @Override
         public int getCount() {
-            return 4;
+            return 5;
         }
 
         @Override
@@ -102,6 +124,8 @@ public class FragmentLegend extends FragmentBase {
                     return new FragmentLegend().setLayout(R.layout.fragment_legend_messages);
                 case 3:
                     return new FragmentLegend().setLayout(R.layout.fragment_legend_compose);
+                case 4:
+                    return new FragmentLegend().setLayout(R.layout.fragment_legend_keyboard);
                 default:
                     throw new IllegalArgumentException();
             }
@@ -118,6 +142,8 @@ public class FragmentLegend extends FragmentBase {
                     return getString(R.string.title_legend_section_messages);
                 case 3:
                     return getString(R.string.title_legend_section_compose);
+                case 4:
+                    return getString(R.string.title_legend_section_keyboard);
                 default:
                     throw new IllegalArgumentException();
             }

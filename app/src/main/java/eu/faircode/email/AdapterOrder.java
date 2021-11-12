@@ -16,7 +16,7 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
@@ -79,8 +79,9 @@ public class AdapterOrder extends RecyclerView.Adapter<AdapterOrder.ViewHolder> 
         owner.getLifecycle().addObserver(new LifecycleObserver() {
             @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
             public void onDestroyed() {
-                Log.i(AdapterOrder.this + " parent destroyed");
+                Log.d(AdapterOrder.this + " parent destroyed");
                 AdapterOrder.this.parentFragment = null;
+                owner.getLifecycle().removeObserver(this);
             }
         });
     }
@@ -98,28 +99,28 @@ public class AdapterOrder extends RecyclerView.Adapter<AdapterOrder.ViewHolder> 
         diff.dispatchUpdatesTo(new ListUpdateCallback() {
             @Override
             public void onInserted(int position, int count) {
-                Log.i("Inserted @" + position + " #" + count);
+                Log.d("Inserted @" + position + " #" + count);
             }
 
             @Override
             public void onRemoved(int position, int count) {
-                Log.i("Removed @" + position + " #" + count);
+                Log.d("Removed @" + position + " #" + count);
             }
 
             @Override
             public void onMoved(int fromPosition, int toPosition) {
-                Log.i("Moved " + fromPosition + ">" + toPosition);
+                Log.d("Moved " + fromPosition + ">" + toPosition);
             }
 
             @Override
             public void onChanged(int position, int count, Object payload) {
-                Log.i("Changed @" + position + " #" + count);
+                Log.d("Changed @" + position + " #" + count);
             }
         });
         diff.dispatchUpdatesTo(this);
     }
 
-    private class DiffCallback extends DiffUtil.Callback {
+    private static class DiffCallback extends DiffUtil.Callback {
         private List<EntityOrder> prev = new ArrayList<>();
         private List<EntityOrder> next = new ArrayList<>();
 

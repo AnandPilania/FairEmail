@@ -16,11 +16,12 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
 
 import androidx.lifecycle.LifecycleService;
 
@@ -61,5 +62,9 @@ abstract class ServiceBase extends LifecycleService {
         Log.breadcrumb(this.getClass().getSimpleName(), crumb);
 
         super.onDestroy();
+    }
+
+    Handler getMainHandler() {
+        return ApplicationEx.getMainHandler();
     }
 }

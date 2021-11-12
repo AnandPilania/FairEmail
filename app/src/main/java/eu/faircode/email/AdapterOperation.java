@@ -16,12 +16,16 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Typeface;
 import android.os.Bundle;
+import android.text.SpannableString;
+import android.text.style.RelativeSizeSpan;
+import android.text.style.StyleSpan;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -91,7 +95,10 @@ public class AdapterOperation extends RecyclerView.Adapter<AdapterOperation.View
             view.setAlpha(operation.synchronize ? 1.0f : Helper.LOW_LIGHT);
 
             StringBuilder sb = new StringBuilder();
-            sb.append(operation.name);
+            sb
+                    .append(operation.name).append(':')
+                    .append(operation.priority).append("/")
+                    .append(operation.tries);
             try {
                 JSONArray jarray = new JSONArray(operation.args);
                 if (jarray.length() > 0)
@@ -104,7 +111,7 @@ public class AdapterOperation extends RecyclerView.Adapter<AdapterOperation.View
                     (operation.accountName == null ? "" : operation.accountName + "/") + operation.folderName;
 
             ivState.setVisibility(operation.state == null ? View.INVISIBLE : View.VISIBLE);
-            tvFolder.setText(folderName);
+            tvFolder.setText(folderName + ":" + operation.folder);
             tvOperation.setText(sb.toString());
             tvTime.setText(Helper.getRelativeTimeSpanString(context, operation.created));
             tvError.setText(operation.error);
@@ -138,12 +145,13 @@ public class AdapterOperation extends RecyclerView.Adapter<AdapterOperation.View
                         lbm.sendBroadcast(
                                 new Intent(ActivityView.ACTION_VIEW_MESSAGES)
                                         .putExtra("account", folder.account)
-                                        .putExtra("folder", folder.id));
+                                        .putExtra("folder", folder.id)
+                                        .putExtra("type", folder.type));
                     }
 
                     @Override
                     protected void onException(Bundle args, Throwable ex) {
-                        Helper.unexpectedError(parentFragment.getFragmentManager(), ex);
+                        Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
                     }
                 }.execute(context, owner, args, "operation:open:folder");
             } else {
@@ -163,6 +171,7 @@ public class AdapterOperation extends RecyclerView.Adapter<AdapterOperation.View
                         lbm.sendBroadcast(
                                 new Intent(ActivityView.ACTION_VIEW_THREAD)
                                         .putExtra("account", message.account)
+                                        .putExtra("folder", message.folder)
                                         .putExtra("thread", message.thread)
                                         .putExtra("id", message.id)
                                         .putExtra("found", false));
@@ -170,7 +179,7 @@ public class AdapterOperation extends RecyclerView.Adapter<AdapterOperation.View
 
                     @Override
                     protected void onException(Bundle args, Throwable ex) {
-                        Helper.unexpectedError(parentFragment.getFragmentManager(), ex);
+                        Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
                     }
                 }.execute(context, owner, args, "operation:open:message");
             }
@@ -187,18 +196,23 @@ public class AdapterOperation extends RecyclerView.Adapter<AdapterOperation.View
                 return false;
 
             PopupMenuLifecycle popupMenu = new PopupMenuLifecycle(context, powner, view);
+
+            SpannableString ss = new SpannableString(operation.name + ":" + operation.id);
+            ss.setSpan(new StyleSpan(Typeface.ITALIC), 0, ss.length(), 0);
+            ss.setSpan(new RelativeSizeSpan(0.9f), 0, ss.length(), 0);
+            popupMenu.getMenu().add(Menu.NONE, 0, 0, ss)
+                    .setEnabled(false);
+
             popupMenu.getMenu().add(Menu.NONE, R.string.title_delete, 1, R.string.title_delete);
 
             popupMenu.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
                 @Override
                 public boolean onMenuItemClick(MenuItem item) {
-                    switch (item.getItemId()) {
-                        case R.string.title_delete:
-                            onActionDelete();
-                            return true;
-                        default:
-                            return false;
+                    if (item.getItemId() == R.string.title_delete) {
+                        onActionDelete();
+                        return true;
                     }
+                    return false;
                 }
 
                 private void onActionDelete() {
@@ -215,13 +229,17 @@ public class AdapterOperation extends RecyclerView.Adapter<AdapterOperation.View
                                 return null;
 
                             db.operation().deleteOperation(operation.id);
+
                             db.folder().setFolderError(operation.folder, null);
+                            if (operation.message != null)
+                                db.message().setMessageError(operation.message, null);
+
                             return null;
                         }
 
                         @Override
                         protected void onException(Bundle args, Throwable ex) {
-                            Helper.unexpectedError(parentFragment.getFragmentManager(), ex);
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
                         }
                     }.execute(context, owner, args, "operation:delete");
                 }
@@ -244,8 +262,9 @@ public class AdapterOperation extends RecyclerView.Adapter<AdapterOperation.View
         owner.getLifecycle().addObserver(new LifecycleObserver() {
             @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
             public void onDestroyed() {
-                Log.i(AdapterOperation.this + " parent destroyed");
+                Log.d(AdapterOperation.this + " parent destroyed");
                 AdapterOperation.this.parentFragment = null;
+                owner.getLifecycle().removeObserver(this);
             }
         });
     }
@@ -260,28 +279,28 @@ public class AdapterOperation extends RecyclerView.Adapter<AdapterOperation.View
         diff.dispatchUpdatesTo(new ListUpdateCallback() {
             @Override
             public void onInserted(int position, int count) {
-                Log.i("Inserted @" + position + " #" + count);
+                Log.d("Inserted @" + position + " #" + count);
             }
 
             @Override
             public void onRemoved(int position, int count) {
-                Log.i("Removed @" + position + " #" + count);
+                Log.d("Removed @" + position + " #" + count);
             }
 
             @Override
             public void onMoved(int fromPosition, int toPosition) {
-                Log.i("Moved " + fromPosition + ">" + toPosition);
+                Log.d("Moved " + fromPosition + ">" + toPosition);
             }
 
             @Override
             public void onChanged(int position, int count, Object payload) {
-                Log.i("Changed @" + position + " #" + count);
+                Log.d("Changed @" + position + " #" + count);
             }
         });
         diff.dispatchUpdatesTo(this);
     }
 
-    private class DiffCallback extends DiffUtil.Callback {
+    private static class DiffCallback extends DiffUtil.Callback {
         private List<TupleOperationEx> prev = new ArrayList<>();
         private List<TupleOperationEx> next = new ArrayList<>();
 
@@ -332,17 +351,12 @@ public class AdapterOperation extends RecyclerView.Adapter<AdapterOperation.View
     }
 
     @Override
-    public void onViewRecycled(@NonNull ViewHolder holder) {
-        holder.powner.recreate();
-    }
-
-    @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        holder.unwire();
-
         TupleOperationEx operation = items.get(position);
-        holder.bindTo(operation);
+        holder.powner.recreate(operation == null ? null : operation.id);
 
+        holder.unwire();
+        holder.bindTo(operation);
         holder.wire();
     }
 }

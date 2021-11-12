@@ -16,19 +16,24 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
+import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.NetworkInfo;
 import android.net.NetworkRequest;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -38,14 +43,15 @@ import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.CompoundButton;
+import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.SwitchCompat;
-import androidx.fragment.app.FragmentActivity;
+import androidx.cardview.widget.CardView;
+import androidx.constraintlayout.widget.Group;
 import androidx.lifecycle.Lifecycle;
 import androidx.preference.PreferenceManager;
 
@@ -54,12 +60,30 @@ public class FragmentOptionsConnection extends FragmentBase implements SharedPre
     private Spinner spDownload;
     private SwitchCompat swRoaming;
     private SwitchCompat swRlah;
+    private SwitchCompat swDownloadHeaders;
+    private SwitchCompat swDownloadEml;
+    private SwitchCompat swValidated;
+    private SwitchCompat swVpnOnly;
+    private EditText etTimeout;
+    private SwitchCompat swPreferIp4;
+    private SwitchCompat swBindSocket;
+    private SwitchCompat swStandaloneVpn;
+    private SwitchCompat swTcpKeepAlive;
+    private TextView tvTcpKeepAliveHint;
+    private SwitchCompat swSslHarden;
     private Button btnManage;
-    private TextView tvConnectionType;
-    private TextView tvConnectionRoaming;
+    private TextView tvNetworkMetered;
+    private TextView tvNetworkRoaming;
+    private CardView cardDebug;
+    private TextView tvNetworkInfo;
+
+    private Group grpValidated;
 
     private final static String[] RESET_OPTIONS = new String[]{
-            "metered", "download", "roaming", "rlah"
+            "metered", "download", "roaming", "rlah",
+            "download_headers", "download_eml",
+            "require_validated", "vpn_only",
+            "timeout", "prefer_ip4", "bind_socket", "standalone_vpn", "tcp_keep_alive", "ssl_harden"
     };
 
     @Override
@@ -76,22 +100,38 @@ public class FragmentOptionsConnection extends FragmentBase implements SharedPre
         spDownload = view.findViewById(R.id.spDownload);
         swRoaming = view.findViewById(R.id.swRoaming);
         swRlah = view.findViewById(R.id.swRlah);
+        swDownloadHeaders = view.findViewById(R.id.swDownloadHeaders);
+        swDownloadEml = view.findViewById(R.id.swDownloadEml);
+        swValidated = view.findViewById(R.id.swValidated);
+        swVpnOnly = view.findViewById(R.id.swVpnOnly);
+        etTimeout = view.findViewById(R.id.etTimeout);
+        swPreferIp4 = view.findViewById(R.id.swPreferIp4);
+        swBindSocket = view.findViewById(R.id.swBindSocket);
+        swStandaloneVpn = view.findViewById(R.id.swStandaloneVpn);
+        swTcpKeepAlive = view.findViewById(R.id.swTcpKeepAlive);
+        tvTcpKeepAliveHint = view.findViewById(R.id.tvTcpKeepAliveHint);
+        swSslHarden = view.findViewById(R.id.swSslHarden);
         btnManage = view.findViewById(R.id.btnManage);
 
-        tvConnectionType = view.findViewById(R.id.tvConnectionType);
-        tvConnectionRoaming = view.findViewById(R.id.tvConnectionRoaming);
+        tvNetworkMetered = view.findViewById(R.id.tvNetworkMetered);
+        tvNetworkRoaming = view.findViewById(R.id.tvNetworkRoaming);
+
+        cardDebug = view.findViewById(R.id.cardDebug);
+        tvNetworkInfo = view.findViewById(R.id.tvNetworkInfo);
+
+        grpValidated = view.findViewById(R.id.grpValidated);
 
         setOptions();
 
         // Wire controls
 
         final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
+        boolean debug = prefs.getBoolean("debug", false);
 
         swMetered.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
                 prefs.edit().putBoolean("metered", checked).apply();
-                ServiceSynchronize.reload(getContext(), "metered=" + checked);
             }
         });
 
@@ -112,7 +152,6 @@ public class FragmentOptionsConnection extends FragmentBase implements SharedPre
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
                 prefs.edit().putBoolean("roaming", checked).apply();
-                ServiceSynchronize.reload(getContext(), "roaming=" + checked);
             }
         });
 
@@ -120,13 +159,114 @@ public class FragmentOptionsConnection extends FragmentBase implements SharedPre
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
                 prefs.edit().putBoolean("rlah", checked).apply();
-                ServiceSynchronize.reload(getContext(), "rlah=" + checked);
+            }
+        });
+
+        swDownloadHeaders.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
+                prefs.edit().putBoolean("download_headers", checked).apply();
+            }
+        });
+
+        swDownloadEml.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
+                prefs.edit().putBoolean("download_eml", checked).apply();
+            }
+        });
+
+        grpValidated.setVisibility(Build.VERSION.SDK_INT < Build.VERSION_CODES.M ? View.GONE : View.VISIBLE);
+        swValidated.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
+                prefs.edit().putBoolean("require_validated", checked).apply();
+            }
+        });
+
+        swVpnOnly.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
+                prefs.edit().putBoolean("vpn_only", checked).apply();
+            }
+        });
+
+        etTimeout.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+                // Do nothing
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                try {
+                    int timeout = (s.length() > 0 ? Integer.parseInt(s.toString()) : 0);
+                    if (timeout == 0)
+                        prefs.edit().remove("timeout").apply();
+                    else
+                        prefs.edit().putInt("timeout", timeout).apply();
+                } catch (NumberFormatException ex) {
+                    Log.e(ex);
+                }
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                // Do nothing
+            }
+        });
+
+        swPreferIp4.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
+                prefs.edit().putBoolean("prefer_ip4", checked).apply();
+            }
+        });
+
+        swBindSocket.setVisibility(debug || BuildConfig.DEBUG ? View.VISIBLE : View.GONE);
+
+        swBindSocket.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
+                prefs.edit().putBoolean("bind_socket", checked).apply();
+            }
+        });
+
+        swStandaloneVpn.setVisibility(debug || BuildConfig.DEBUG ? View.VISIBLE : View.GONE);
+
+        swStandaloneVpn.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
+                prefs.edit().putBoolean("standalone_vpn", checked).apply();
+            }
+        });
+
+        swTcpKeepAlive.setVisibility(debug || BuildConfig.DEBUG ? View.VISIBLE : View.GONE);
+        tvTcpKeepAliveHint.setVisibility(debug || BuildConfig.DEBUG ? View.VISIBLE : View.GONE);
+
+        swTcpKeepAlive.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
+                try {
+                    System.setProperty("fairemail.tcp_keep_alive", Boolean.toString(checked));
+                } catch (Throwable ex) {
+                    Log.e(ex);
+                }
+                prefs.edit().putBoolean("tcp_keep_alive", checked).apply();
+            }
+        });
+
+        swSslHarden.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
+                prefs.edit().putBoolean("ssl_harden", checked).apply();
             }
         });
 
         final Intent manage = getIntentConnectivity();
+        PackageManager pm = getContext().getPackageManager();
         btnManage.setVisibility(
-                manage.resolveActivity(getContext().getPackageManager()) == null
+                manage.resolveActivity(pm) == null // system whitelisted
                         ? View.GONE : View.VISIBLE);
 
         btnManage.setOnClickListener(new View.OnClickListener() {
@@ -136,10 +276,13 @@ public class FragmentOptionsConnection extends FragmentBase implements SharedPre
             }
         });
 
-        PreferenceManager.getDefaultSharedPreferences(getContext()).registerOnSharedPreferenceChangeListener(this);
+        // Initialize
+        FragmentDialogTheme.setBackground(getContext(), view, false);
+        tvNetworkMetered.setVisibility(View.GONE);
+        tvNetworkRoaming.setVisibility(View.GONE);
+        cardDebug.setVisibility(View.GONE);
 
-        tvConnectionType.setVisibility(View.GONE);
-        tvConnectionRoaming.setVisibility(View.GONE);
+        PreferenceManager.getDefaultSharedPreferences(getContext()).registerOnSharedPreferenceChangeListener(this);
 
         return view;
     }
@@ -152,7 +295,11 @@ public class FragmentOptionsConnection extends FragmentBase implements SharedPre
 
     @Override
     public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
-        setOptions();
+        if ("timeout".equals(key))
+            return;
+
+        if (getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
+            setOptions();
     }
 
     @Override
@@ -162,6 +309,8 @@ public class FragmentOptionsConnection extends FragmentBase implements SharedPre
         ConnectivityManager cm = (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
         if (cm == null)
             return;
+
+        showConnectionType();
 
         NetworkRequest.Builder builder = new NetworkRequest.Builder();
         builder.addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
@@ -187,22 +336,11 @@ public class FragmentOptionsConnection extends FragmentBase implements SharedPre
 
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
-        switch (item.getItemId()) {
-            case R.id.menu_default:
-                onMenuDefault();
-                return true;
-            default:
-                return super.onOptionsItemSelected(item);
+        if (item.getItemId() == R.id.menu_default) {
+            FragmentOptions.reset(getContext(), RESET_OPTIONS, null);
+            return true;
         }
-    }
-
-    private void onMenuDefault() {
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
-        SharedPreferences.Editor editor = prefs.edit();
-        for (String option : RESET_OPTIONS)
-            editor.remove(option);
-        editor.apply();
-        ToastEx.makeText(getContext(), R.string.title_setup_done, Toast.LENGTH_LONG).show();
+        return super.onOptionsItemSelected(item);
     }
 
     private void setOptions() {
@@ -210,7 +348,7 @@ public class FragmentOptionsConnection extends FragmentBase implements SharedPre
 
         swMetered.setChecked(prefs.getBoolean("metered", true));
 
-        int download = prefs.getInt("download", MessageHelper.DEFAULT_ATTACHMENT_DOWNLOAD_SIZE);
+        int download = prefs.getInt("download", MessageHelper.DEFAULT_DOWNLOAD_SIZE);
         int[] downloadValues = getResources().getIntArray(R.array.downloadValues);
         for (int pos = 0; pos < downloadValues.length; pos++)
             if (downloadValues[pos] == download) {
@@ -220,6 +358,22 @@ public class FragmentOptionsConnection extends FragmentBase implements SharedPre
 
         swRoaming.setChecked(prefs.getBoolean("roaming", true));
         swRlah.setChecked(prefs.getBoolean("rlah", true));
+
+        swDownloadHeaders.setChecked(prefs.getBoolean("download_headers", false));
+        swDownloadEml.setChecked(prefs.getBoolean("download_eml", false));
+
+        swValidated.setChecked(prefs.getBoolean("require_validated", false));
+        swVpnOnly.setChecked(prefs.getBoolean("vpn_only", false));
+
+        int timeout = prefs.getInt("timeout", 0);
+        etTimeout.setText(timeout == 0 ? null : Integer.toString(timeout));
+        etTimeout.setHint(Integer.toString(EmailService.DEFAULT_CONNECT_TIMEOUT));
+
+        swPreferIp4.setChecked(prefs.getBoolean("prefer_ip4", true));
+        swBindSocket.setChecked(prefs.getBoolean("bind_socket", false));
+        swStandaloneVpn.setChecked(prefs.getBoolean("standalone_vpn", false));
+        swTcpKeepAlive.setChecked(prefs.getBoolean("tcp_keep_alive", false));
+        swSslHarden.setChecked(prefs.getBoolean("ssl_harden", false));
     }
 
     private static Intent getIntentConnectivity() {
@@ -241,26 +395,63 @@ public class FragmentOptionsConnection extends FragmentBase implements SharedPre
         }
 
         @Override
+        public void onLinkPropertiesChanged(@NonNull Network network, @NonNull LinkProperties linkProperties) {
+            showConnectionType();
+        }
+
+        @Override
         public void onLost(@NonNull Network network) {
             showConnectionType();
         }
     };
 
     private void showConnectionType() {
-        FragmentActivity activity = getActivity();
-        if (activity == null)
+        if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
             return;
 
-        activity.runOnUiThread(new Runnable() {
+        final Context context = getContext();
+        final ConnectionHelper.NetworkState networkState = ConnectionHelper.getNetworkState(context);
+
+        final StringBuilder sb = new StringBuilder();
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        boolean debug = prefs.getBoolean("debug", false);
+        if ((debug || BuildConfig.DEBUG) &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+            try {
+                ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+                Network active = (cm == null ? null : cm.getActiveNetwork());
+                if (active != null) {
+                    NetworkInfo ni = cm.getNetworkInfo(active);
+                    if (ni != null)
+                        sb.append(ni).append("\r\n\r\n");
+
+                    NetworkCapabilities nc = cm.getNetworkCapabilities(active);
+                    if (nc != null)
+                        sb.append(nc).append("\r\n\r\n");
+
+                    LinkProperties lp = cm.getLinkProperties(active);
+                    if (lp != null)
+                        sb.append(lp).append("\r\n\r\n");
+                }
+
+                sb.append("VPN=")
+                        .append(ConnectionHelper.vpnActive(context)).append("\r\n");
+                sb.append("Airplane mode=")
+                        .append(ConnectionHelper.airplaneMode(context)).append("\r\n");
+            } catch (Throwable ex) {
+                Log.e(ex);
+            }
+
+        getMainHandler().post(new Runnable() {
             @Override
             public void run() {
-                if (getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED)) {
-                    ConnectionHelper.NetworkState networkState = ConnectionHelper.getNetworkState(getContext());
-
-                    tvConnectionType.setText(networkState.isUnmetered() ? R.string.title_legend_unmetered : R.string.title_legend_metered);
-                    tvConnectionType.setVisibility(networkState.isConnected() ? View.VISIBLE : View.GONE);
-                    tvConnectionRoaming.setVisibility(networkState.isRoaming() ? View.VISIBLE : View.GONE);
-                }
+                if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
+                    return;
+                tvNetworkMetered.setText(networkState.isUnmetered() ? R.string.title_legend_unmetered : R.string.title_legend_metered);
+                tvNetworkInfo.setText(sb.toString());
+                tvNetworkMetered.setVisibility(networkState.isConnected() ? View.VISIBLE : View.GONE);
+                tvNetworkRoaming.setVisibility(networkState.isRoaming() ? View.VISIBLE : View.GONE);
+                cardDebug.setVisibility(sb.length() == 0 ? View.GONE : View.VISIBLE);
             }
         });
     }

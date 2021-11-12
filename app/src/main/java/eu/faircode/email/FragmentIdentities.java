@@ -16,22 +16,28 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
+
+import static androidx.recyclerview.widget.RecyclerView.NO_POSITION;
 
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
+import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Canvas;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.constraintlayout.widget.Group;
-import androidx.core.content.ContextCompat;
 import androidx.fragment.app.FragmentTransaction;
+import androidx.lifecycle.Lifecycle;
 import androidx.lifecycle.Observer;
 import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.DividerItemDecoration;
@@ -42,6 +48,7 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class FragmentIdentities extends FragmentBase {
     private boolean cards;
@@ -77,7 +84,7 @@ public class FragmentIdentities extends FragmentBase {
 
         // Wire controls
 
-        rvIdentity.setHasFixedSize(false);
+        rvIdentity.setHasFixedSize(true);
         LinearLayoutManager llm = new LinearLayoutManager(getContext());
         rvIdentity.setLayoutManager(llm);
 
@@ -87,6 +94,74 @@ public class FragmentIdentities extends FragmentBase {
             rvIdentity.addItemDecoration(itemDecorator);
         }
 
+        DividerItemDecoration categoryDecorator = new DividerItemDecoration(getContext(), llm.getOrientation()) {
+            @Override
+            public void onDraw(@NonNull Canvas canvas, @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
+                int count = parent.getChildCount();
+                for (int i = 0; i < count; i++) {
+                    View view = parent.getChildAt(i);
+                    int pos = parent.getChildAdapterPosition(view);
+
+                    View header = getView(view, parent, pos);
+                    if (header != null) {
+                        canvas.save();
+                        canvas.translate(0, parent.getChildAt(i).getTop() - header.getMeasuredHeight());
+                        header.draw(canvas);
+                        canvas.restore();
+                    }
+                }
+            }
+
+            @Override
+            public void getItemOffsets(Rect outRect, View view, RecyclerView parent, RecyclerView.State state) {
+                int pos = parent.getChildAdapterPosition(view);
+                View header = getView(view, parent, pos);
+                if (header == null)
+                    outRect.setEmpty();
+                else
+                    outRect.top = header.getMeasuredHeight();
+            }
+
+            private View getView(View view, RecyclerView parent, int pos) {
+                if (pos == NO_POSITION)
+                    return null;
+
+                TupleIdentityEx prev = adapter.getItemAtPosition(pos - 1);
+                TupleIdentityEx identity = adapter.getItemAtPosition(pos);
+                if (pos > 0 && prev == null)
+                    return null;
+                if (identity == null)
+                    return null;
+
+                if (pos > 0) {
+                    if (Objects.equals(prev.accountCategory, identity.accountCategory))
+                        return null;
+                } else {
+                    if (identity.accountCategory == null)
+                        return null;
+                }
+
+                View header = inflater.inflate(R.layout.item_group, parent, false);
+                TextView tvCategory = header.findViewById(R.id.tvCategory);
+                TextView tvDate = header.findViewById(R.id.tvDate);
+
+                if (cards) {
+                    View vSeparator = header.findViewById(R.id.vSeparator);
+                    vSeparator.setVisibility(View.GONE);
+                }
+
+                tvCategory.setText(identity.accountCategory);
+                tvDate.setVisibility(View.GONE);
+
+                header.measure(View.MeasureSpec.makeMeasureSpec(parent.getWidth(), View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                header.layout(0, 0, header.getMeasuredWidth(), header.getMeasuredHeight());
+
+                return header;
+            }
+        };
+        rvIdentity.addItemDecoration(categoryDecorator);
+
         adapter = new AdapterIdentity(this);
         rvIdentity.setAdapter(adapter);
 
@@ -95,28 +170,27 @@ public class FragmentIdentities extends FragmentBase {
             public void onClick(View view) {
                 FragmentIdentity fragment = new FragmentIdentity();
                 fragment.setArguments(new Bundle());
-                FragmentTransaction fragmentTransaction = getFragmentManager().beginTransaction();
+                FragmentTransaction fragmentTransaction = getParentFragmentManager().beginTransaction();
                 fragmentTransaction.replace(R.id.content_frame, fragment).addToBackStack("identity");
                 fragmentTransaction.commit();
             }
         });
 
         animator = ObjectAnimator.ofFloat(fab, "alpha", 0.5f, 1.0f);
-        animator.setDuration(500L);
+        animator.setDuration(750L);
         animator.setRepeatCount(ValueAnimator.INFINITE);
         animator.setRepeatMode(ValueAnimator.REVERSE);
         animator.addUpdateListener(new ObjectAnimator.AnimatorUpdateListener() {
             @Override
             public void onAnimationUpdate(ValueAnimator animation) {
+                if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
+                    return;
                 fab.setAlpha((float) animation.getAnimatedValue());
             }
         });
 
         // Initialize
-
-        if (cards && !Helper.isDarkTheme(getContext()))
-            view.setBackgroundColor(ContextCompat.getColor(getContext(), R.color.lightColorBackground_cards));
-
+        FragmentDialogTheme.setBackground(getContext(), view, false);
         grpReady.setVisibility(View.GONE);
         pbWait.setVisibility(View.VISIBLE);
 
@@ -127,8 +201,11 @@ public class FragmentIdentities extends FragmentBase {
     public void onActivityCreated(@Nullable Bundle savedInstanceState) {
         super.onActivityCreated(savedInstanceState);
 
+        final Context context = getContext();
+        final DB db = DB.getInstance(context);
+
         // Observe identities
-        DB.getInstance(getContext()).identity().liveIdentities(false).observe(getViewLifecycleOwner(), new Observer<List<TupleIdentityEx>>() {
+        db.identity().liveIdentities().observe(getViewLifecycleOwner(), new Observer<List<TupleIdentityEx>>() {
             @Override
             public void onChanged(@Nullable List<TupleIdentityEx> identities) {
                 if (identities == null)
@@ -139,11 +216,15 @@ public class FragmentIdentities extends FragmentBase {
                 pbWait.setVisibility(View.GONE);
                 grpReady.setVisibility(View.VISIBLE);
 
-
-                if (identities.size() == 0)
-                    animator.start();
-                else
-                    animator.end();
+                if (identities.size() == 0) {
+                    fab.setCustomSize(Helper.dp2pixels(context, 2 * 56));
+                    if (!animator.isStarted())
+                        animator.start();
+                } else {
+                    fab.clearCustomSize();
+                    if (animator.isStarted())
+                        animator.end();
+                }
             }
         });
     }

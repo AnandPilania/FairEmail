@@ -16,14 +16,19 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
+
+import static androidx.recyclerview.widget.RecyclerView.NO_POSITION;
 
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -31,29 +36,41 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.widget.PopupMenu;
 import androidx.constraintlayout.widget.Group;
-import androidx.core.content.ContextCompat;
 import androidx.fragment.app.FragmentTransaction;
+import androidx.lifecycle.Lifecycle;
 import androidx.lifecycle.Observer;
-import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.DividerItemDecoration;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import com.google.android.material.snackbar.Snackbar;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+
+import static eu.faircode.email.ServiceAuthenticator.AUTH_TYPE_PASSWORD;
 
 public class FragmentAccounts extends FragmentBase {
     private boolean settings;
 
     private boolean cards;
 
+    private ViewGroup view;
+    private SwipeRefreshLayout swipeRefresh;
+    private Button btnGrant;
     private RecyclerView rvAccount;
     private ContentLoadingProgressBar pbWait;
     private Group grpReady;
@@ -61,8 +78,9 @@ public class FragmentAccounts extends FragmentBase {
     private FloatingActionButton fabCompose;
     private ObjectAnimator animator;
 
-    private String searching = null;
     private AdapterAccount adapter;
+
+    private static final int REQUEST_IMPORT_OAUTH = 1;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -81,9 +99,11 @@ public class FragmentAccounts extends FragmentBase {
         setSubtitle(R.string.title_list_accounts);
         setHasOptionsMenu(true);
 
-        View view = inflater.inflate(R.layout.fragment_accounts, container, false);
+        view = (ViewGroup) inflater.inflate(R.layout.fragment_accounts, container, false);
 
         // Get controls
+        swipeRefresh = view.findViewById(R.id.swipeRefresh);
+        btnGrant = view.findViewById(R.id.btnGrant);
         rvAccount = view.findViewById(R.id.rvAccount);
         pbWait = view.findViewById(R.id.pbWait);
         grpReady = view.findViewById(R.id.grpReady);
@@ -91,6 +111,28 @@ public class FragmentAccounts extends FragmentBase {
         fabCompose = view.findViewById(R.id.fabCompose);
 
         // Wire controls
+
+        int colorPrimary = Helper.resolveColor(getContext(), R.attr.colorPrimary);
+        swipeRefresh.setColorSchemeColors(Color.WHITE, Color.WHITE, Color.WHITE);
+        swipeRefresh.setProgressBackgroundColorSchemeColor(colorPrimary);
+        swipeRefresh.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
+            @Override
+            public void onRefresh() {
+                onSwipeRefresh();
+            }
+        });
+        swipeRefresh.setEnabled(!settings);
+
+        btnGrant.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    requestPermissions(Helper.getOAuthPermissions(), REQUEST_IMPORT_OAUTH);
+                } catch (Throwable ex) {
+                    Log.unexpectedError(getParentFragmentManager(), ex);
+                }
+            }
+        });
 
         rvAccount.setHasFixedSize(false);
         LinearLayoutManager llm = new LinearLayoutManager(getContext());
@@ -102,79 +144,160 @@ public class FragmentAccounts extends FragmentBase {
             rvAccount.addItemDecoration(itemDecorator);
         }
 
+        DividerItemDecoration categoryDecorator = new DividerItemDecoration(getContext(), llm.getOrientation()) {
+            @Override
+            public void onDraw(@NonNull Canvas canvas, @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
+                int count = parent.getChildCount();
+                for (int i = 0; i < count; i++) {
+                    View view = parent.getChildAt(i);
+                    int pos = parent.getChildAdapterPosition(view);
+
+                    View header = getView(view, parent, pos);
+                    if (header != null) {
+                        canvas.save();
+                        canvas.translate(0, parent.getChildAt(i).getTop() - header.getMeasuredHeight());
+                        header.draw(canvas);
+                        canvas.restore();
+                    }
+                }
+            }
+
+            @Override
+            public void getItemOffsets(Rect outRect, View view, RecyclerView parent, RecyclerView.State state) {
+                int pos = parent.getChildAdapterPosition(view);
+                View header = getView(view, parent, pos);
+                if (header == null)
+                    outRect.setEmpty();
+                else
+                    outRect.top = header.getMeasuredHeight();
+            }
+
+            private View getView(View view, RecyclerView parent, int pos) {
+                if (pos == NO_POSITION)
+                    return null;
+
+                TupleAccountEx prev = adapter.getItemAtPosition(pos - 1);
+                TupleAccountEx account = adapter.getItemAtPosition(pos);
+                if (pos > 0 && prev == null)
+                    return null;
+                if (account == null)
+                    return null;
+
+                if (pos > 0) {
+                    if (Objects.equals(prev.category, account.category))
+                        return null;
+                } else {
+                    if (account.category == null)
+                        return null;
+                }
+
+                View header = inflater.inflate(R.layout.item_group, parent, false);
+                TextView tvCategory = header.findViewById(R.id.tvCategory);
+                TextView tvDate = header.findViewById(R.id.tvDate);
+
+                if (cards) {
+                    View vSeparator = header.findViewById(R.id.vSeparator);
+                    vSeparator.setVisibility(View.GONE);
+                }
+
+                tvCategory.setText(account.category);
+                tvDate.setVisibility(View.GONE);
+
+                header.measure(View.MeasureSpec.makeMeasureSpec(parent.getWidth(), View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                header.layout(0, 0, header.getMeasuredWidth(), header.getMeasuredHeight());
+
+                return header;
+            }
+        };
+        rvAccount.addItemDecoration(categoryDecorator);
+
         adapter = new AdapterAccount(this, settings);
         rvAccount.setAdapter(adapter);
 
         fab.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                FragmentAccount fragment = new FragmentAccount();
-                fragment.setArguments(new Bundle());
-                FragmentTransaction fragmentTransaction = getFragmentManager().beginTransaction();
-                fragmentTransaction.replace(R.id.content_frame, fragment).addToBackStack("account");
-                fragmentTransaction.commit();
+                PopupMenuLifecycle popupMenu = new PopupMenuLifecycle(getContext(), getViewLifecycleOwner(), fab);
+
+                popupMenu.getMenu().add(Menu.NONE, R.string.title_imap, 1, R.string.title_imap);
+                popupMenu.getMenu().add(Menu.NONE, R.string.title_pop3, 2, R.string.title_pop3);
+
+                popupMenu.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
+                    @Override
+                    public boolean onMenuItemClick(MenuItem item) {
+                        int itemId = item.getItemId();
+                        if (itemId == R.string.title_imap) {
+                            onCreate(true);
+                            return true;
+                        } else if (itemId == R.string.title_pop3) {
+                            onCreate(false);
+                            return true;
+                        }
+                        return false;
+                    }
+
+                    private void onCreate(boolean imap) {
+                        FragmentBase fragment = imap ? new FragmentAccount() : new FragmentPop();
+                        fragment.setArguments(new Bundle());
+                        FragmentTransaction fragmentTransaction = getParentFragmentManager().beginTransaction();
+                        fragmentTransaction.replace(R.id.content_frame, fragment).addToBackStack("account");
+                        fragmentTransaction.commit();
+                    }
+                });
+
+                popupMenu.show();
             }
         });
 
         fabCompose.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startActivity(new Intent(getContext(), ActivityCompose.class)
-                        .putExtra("action", "new")
-                        .putExtra("account", -1L)
-                );
+                FragmentDialogIdentity.onCompose(
+                        getContext(),
+                        getViewLifecycleOwner(),
+                        getParentFragmentManager(),
+                        fabCompose, -1L);
             }
         });
 
         fabCompose.setOnLongClickListener(new View.OnLongClickListener() {
             @Override
             public boolean onLongClick(View v) {
-                Bundle args = new Bundle();
-
-                new SimpleTask<EntityFolder>() {
-                    @Override
-                    protected EntityFolder onExecute(Context context, Bundle args) {
-                        return DB.getInstance(context).folder().getPrimaryDrafts();
-                    }
-
-                    @Override
-                    protected void onExecuted(Bundle args, EntityFolder drafts) {
-                        LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(getContext());
-                        lbm.sendBroadcast(
-                                new Intent(ActivityView.ACTION_VIEW_MESSAGES)
-                                        .putExtra("account", drafts.account)
-                                        .putExtra("folder", drafts.id));
-                    }
-
-                    @Override
-                    protected void onException(Bundle args, Throwable ex) {
-                        Helper.unexpectedError(getFragmentManager(), ex);
-                    }
-                }.execute(FragmentAccounts.this, args, "account:drafts");
-
+                FragmentDialogIdentity.onDrafts(
+                        getContext(),
+                        getViewLifecycleOwner(),
+                        getParentFragmentManager(),
+                        fabCompose, -1L);
                 return true;
             }
         });
 
         animator = ObjectAnimator.ofFloat(fab, "alpha", 0.5f, 1.0f);
-        animator.setDuration(500L);
+        animator.setDuration(750L);
         animator.setRepeatCount(ValueAnimator.INFINITE);
         animator.setRepeatMode(ValueAnimator.REVERSE);
         animator.addUpdateListener(new ObjectAnimator.AnimatorUpdateListener() {
             @Override
             public void onAnimationUpdate(ValueAnimator animation) {
+                if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
+                    return;
                 fab.setAlpha((float) animation.getAnimatedValue());
             }
         });
 
         // Initialize
+        FragmentDialogTheme.setBackground(getContext(), view, false);
 
-        if (cards && !Helper.isDarkTheme(getContext()))
-            view.setBackgroundColor(ContextCompat.getColor(getContext(), R.color.lightColorBackground_cards));
-
-        if (!settings)
+        if (settings) {
+            fab.show();
+            fabCompose.hide();
+        } else {
             fab.hide();
-        fabCompose.hide();
+            fabCompose.show();
+        }
+
+        btnGrant.setVisibility(View.GONE);
         grpReady.setVisibility(View.GONE);
         pbWait.setVisibility(View.VISIBLE);
 
@@ -182,19 +305,11 @@ public class FragmentAccounts extends FragmentBase {
     }
 
     @Override
-    public void onSaveInstanceState(Bundle outState) {
-        outState.putString("fair:searching", searching);
-        super.onSaveInstanceState(outState);
-    }
-
-    @Override
     public void onActivityCreated(@Nullable Bundle savedInstanceState) {
         super.onActivityCreated(savedInstanceState);
 
-        if (savedInstanceState != null)
-            searching = savedInstanceState.getString("fair:searching");
-
-        DB db = DB.getInstance(getContext());
+        final Context context = getContext();
+        final DB db = DB.getInstance(context);
 
         // Observe accounts
         db.account().liveAccountsEx(settings)
@@ -204,59 +319,191 @@ public class FragmentAccounts extends FragmentBase {
                         if (accounts == null)
                             accounts = new ArrayList<>();
 
+                        boolean authorized = true;
+                        for (TupleAccountEx account : accounts)
+                            if (account.auth_type != AUTH_TYPE_PASSWORD &&
+                                    !Helper.hasPermissions(getContext(), Helper.getOAuthPermissions())) {
+                                authorized = false;
+                            }
+                        btnGrant.setVisibility(authorized ? View.GONE : View.VISIBLE);
+
                         adapter.set(accounts);
 
                         pbWait.setVisibility(View.GONE);
                         grpReady.setVisibility(View.VISIBLE);
 
-                        if (accounts.size() == 0)
-                            animator.start();
-                        else
-                            animator.end();
+                        if (accounts.size() == 0) {
+                            fab.setCustomSize(Helper.dp2pixels(context, 2 * 56));
+                            if (!animator.isStarted())
+                                animator.start();
+                        } else {
+                            fab.clearCustomSize();
+                            if (animator.isStarted())
+                                animator.end();
+                        }
                     }
                 });
-
-
-        if (!settings)
-            db.identity().liveComposableIdentities(null).observe(getViewLifecycleOwner(),
-                    new Observer<List<TupleIdentityEx>>() {
-                        @Override
-                        public void onChanged(List<TupleIdentityEx> identities) {
-                            if (identities == null || identities.size() == 0)
-                                fabCompose.hide();
-                            else
-                                fabCompose.show();
-                        }
-                    });
     }
 
     @Override
     public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
         inflater.inflate(R.menu.menu_accounts, menu);
-
-        MenuItem menuSearch = menu.findItem(R.id.menu_search);
-        SearchViewEx searchView = (SearchViewEx) menuSearch.getActionView();
-        searchView.setup(getViewLifecycleOwner(), menuSearch, searching, new SearchViewEx.ISearch() {
-            @Override
-            public void onSave(String query) {
-                searching = query;
-            }
-
-            @Override
-            public void onSearch(String query) {
-                FragmentMessages.search(
-                        getContext(), getViewLifecycleOwner(), getFragmentManager(),
-                        -1, false, query);
-            }
-        });
-
         super.onCreateOptionsMenu(menu, inflater);
     }
 
     @Override
     public void onPrepareOptionsMenu(Menu menu) {
         menu.findItem(R.id.menu_search).setVisible(!settings);
+        menu.findItem(R.id.menu_unified).setVisible(!settings);
+        menu.findItem(R.id.menu_theme).setVisible(!settings);
+        menu.findItem(R.id.menu_force_sync).setVisible(!settings);
 
         super.onPrepareOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(@NonNull MenuItem item) {
+        int itemId = item.getItemId();
+        if (itemId == R.id.menu_search) {
+            onMenuSearch();
+            return true;
+        } else if (itemId == R.id.menu_unified) {
+            onMenuUnified();
+            return true;
+        } else if (itemId == R.id.menu_theme) {
+            onMenuTheme();
+            return true;
+        } else if (itemId == R.id.menu_force_sync) {
+            onMenuForceSync();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    private void onMenuSearch() {
+        Bundle args = new Bundle();
+
+        FragmentDialogSearch fragment = new FragmentDialogSearch();
+        fragment.setArguments(args);
+        fragment.show(getParentFragmentManager(), "search");
+    }
+
+    private void onMenuUnified() {
+        FragmentMessages fragment = new FragmentMessages();
+        fragment.setArguments(new Bundle());
+
+        FragmentTransaction fragmentTransaction = getParentFragmentManager().beginTransaction();
+        fragmentTransaction.replace(R.id.content_frame, fragment).addToBackStack("messages");
+        fragmentTransaction.commit();
+    }
+
+    private void onMenuTheme() {
+        new FragmentDialogTheme().show(getParentFragmentManager(), "messages:theme");
+    }
+
+    private void onMenuForceSync() {
+        refresh(true);
+        ToastEx.makeText(getContext(), R.string.title_executing, Toast.LENGTH_LONG).show();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        if (requestCode == REQUEST_IMPORT_OAUTH)
+            if (Helper.hasPermissions(getContext(), permissions)) {
+                btnGrant.setVisibility(View.GONE);
+                ServiceSynchronize.reload(getContext(), null, false, "Permissions regranted");
+            }
+    }
+
+    private void onSwipeRefresh() {
+        refresh(false);
+    }
+
+    private void refresh(boolean force) {
+        Bundle args = new Bundle();
+        args.putBoolean("force", force);
+
+        new SimpleTask<Void>() {
+            @Override
+            protected void onPostExecute(Bundle args) {
+                swipeRefresh.setRefreshing(false);
+            }
+
+            @Override
+            protected Void onExecute(Context context, Bundle args) {
+                if (!ConnectionHelper.getNetworkState(context).isSuitable())
+                    throw new IllegalStateException(context.getString(R.string.title_no_internet));
+
+                boolean now = true;
+                boolean force = args.getBoolean("force");
+                boolean outbox = false;
+
+                DB db = DB.getInstance(context);
+                try {
+                    db.beginTransaction();
+
+                    // Unified inbox
+                    List<EntityFolder> folders = db.folder().getFoldersUnified(null, true);
+
+                    if (folders.size() > 0)
+                        Collections.sort(folders, folders.get(0).getComparator(context));
+
+                    for (EntityFolder folder : folders) {
+                        EntityOperation.sync(context, folder.id, true, force);
+
+                        if (folder.account == null)
+                            outbox = true;
+                        else {
+                            EntityAccount account = db.account().getAccount(folder.account);
+                            if (account != null && !"connected".equals(account.state)) {
+                                now = false;
+                                if (!account.isTransient(context))
+                                    force = true;
+                            }
+                        }
+                    }
+
+                    db.setTransactionSuccessful();
+                } finally {
+                    db.endTransaction();
+                }
+
+                if (force)
+                    ServiceSynchronize.reload(context, null, true, "refresh");
+                else
+                    ServiceSynchronize.eval(context, "refresh");
+
+                if (outbox)
+                    ServiceSend.start(context);
+
+                if (!now && !args.getBoolean("force"))
+                    throw new IllegalArgumentException(context.getString(R.string.title_no_connection));
+
+                return null;
+            }
+
+            @Override
+            protected void onException(Bundle args, Throwable ex) {
+                if (ex instanceof IllegalStateException) {
+                    Snackbar snackbar = Snackbar.make(view, ex.getMessage(), Snackbar.LENGTH_LONG)
+                            .setGestureInsetBottomIgnored(true);
+                    snackbar.setAction(R.string.title_fix, new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            v.getContext().startActivity(new Intent(v.getContext(), ActivitySetup.class)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                    .putExtra("tab", "connection"));
+                        }
+                    });
+                    snackbar.show();
+                } else if (ex instanceof IllegalArgumentException)
+                    Snackbar.make(view, ex.getMessage(), Snackbar.LENGTH_LONG)
+                            .setGestureInsetBottomIgnored(true).show();
+                else
+                    Log.unexpectedError(getParentFragmentManager(), ex);
+            }
+        }.execute(this, args, "folders:refresh");
     }
 }

@@ -1,116 +1,207 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<eu.faircode.email.ScrollViewEx xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".ActivityView">
+    android:padding="12dp"
+    android:scrollbarStyle="outsideOverlay"
+    tools:context="eu.faircode.email.ActivityView">
 
-    <ScrollView
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:padding="12dp"
-        android:scrollbarStyle="outsideOverlay"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent">
+        android:layout_height="wrap_content">
 
-        <androidx.constraintlayout.widget.ConstraintLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content">
+        <eu.faircode.email.FixedTextView
+            android:id="@+id/tvPending"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:drawableEnd="@drawable/twotone_update_24"
+            android:drawablePadding="6dp"
+            android:drawableTint="?attr/colorWarning"
+            android:text="@string/title_pro_pending"
+            android:textAppearance="@style/TextAppearance.AppCompat.Large"
+            android:textColor="?attr/colorWarning"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
 
-            <TextView
-                android:id="@+id/tvPending"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/title_pro_pending"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                android:textColor="?android:attr/textColorPrimary"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
+        <eu.faircode.email.FixedTextView
+            android:id="@+id/tvActivated"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/title_pro_activated"
+            android:textAppearance="@style/TextAppearance.AppCompat.Large"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tvPending" />
 
-            <TextView
-                android:id="@+id/tvActivated"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/title_pro_activated"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                android:textColor="?android:attr/textColorPrimary"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvPending" />
+        <Button
+            android:id="@+id/btnBackup"
+            style="?android:attr/buttonStyleSmall"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:drawableEnd="@drawable/twotone_archive_24"
+            android:drawablePadding="6dp"
+            android:text="@string/title_setup_export"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tvActivated" />
 
-            <TextView
-                android:id="@+id/tvList"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/title_pro_list"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                android:textColor="?attr/colorAccent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvActivated" />
+        <eu.faircode.email.FixedTextView
+            android:id="@+id/tvInfo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/title_pro_info"
+            android:textAppearance="@style/TextAppearance.AppCompat.Small"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/btnBackup" />
 
-            <Button
-                android:id="@+id/btnPurchase"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/title_pro_purchase"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvList" />
+        <CheckBox
+            android:id="@+id/cbHide"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/title_pro_hide"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tvInfo" />
 
-            <TextView
-                android:id="@+id/tvPrice"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:text="5 euro"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                app:layout_constraintBottom_toBottomOf="@+id/btnPurchase"
-                app:layout_constraintStart_toEndOf="@+id/btnPurchase"
-                app:layout_constraintTop_toTopOf="@+id/btnPurchase" />
+        <eu.faircode.email.FixedTextView
+            android:id="@+id/tvList"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:drawableEnd="@drawable/twotone_open_in_new_24"
+            android:drawablePadding="6dp"
+            android:drawableTint="?android:attr/textColorLink"
+            android:text="@string/title_pro_list"
+            android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+            android:textColor="?android:attr/textColorLink"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/cbHide" />
 
-            <TextView
-                android:id="@+id/tvOnce"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/title_pro_once"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/btnPurchase" />
+        <eu.faircode.email.FixedTextView
+            android:id="@+id/tvWhichever"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/title_pro_whichever"
+            android:textAppearance="@style/TextAppearance.AppCompat.Small"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tvList" />
 
-            <TextView
-                android:id="@+id/tvHint"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_pro_hint"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvOnce" />
+        <Button
+            android:id="@+id/btnPurchase"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:drawableEnd="@drawable/twotone_shopping_cart_24"
+            android:drawablePadding="6dp"
+            android:text="@string/title_pro_purchase"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tvWhichever" />
 
-            <TextView
-                android:id="@+id/tvPriceHint"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_pro_price"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvHint" />
+        <ImageView
+            android:id="@+id/ivExternal"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:contentDescription="@string/title_pro_purchase"
+            app:layout_constraintBottom_toBottomOf="@+id/btnPurchase"
+            app:layout_constraintStart_toEndOf="@+id/btnPurchase"
+            app:layout_constraintTop_toTopOf="@+id/btnPurchase"
+            app:srcCompat="@drawable/twotone_open_in_new_24" />
 
-            <Button
-                android:id="@+id/btnCheck"
-                style="?android:attr/buttonStyleSmall"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:minWidth="0dp"
-                android:minHeight="0dp"
-                android:text="@string/title_check"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvPriceHint" />
-        </androidx.constraintlayout.widget.ConstraintLayout>
-    </ScrollView>
-</androidx.constraintlayout.widget.ConstraintLayout>
+        <eu.faircode.email.FixedTextView
+            android:id="@+id/tvNoPlay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/title_pro_no_play"
+            android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+            android:textColor="?attr/colorWarning"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/btnPurchase" />
+
+        <eu.faircode.email.FixedTextView
+            android:id="@+id/tvPrice"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="5 euro (once only)"
+            android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/tvNoPlay" />
+
+        <eu.faircode.email.FixedTextView
+            android:id="@+id/tvHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/title_pro_hint"
+            android:textAppearance="@style/TextAppearance.AppCompat.Small"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tvPrice" />
+
+        <eu.faircode.email.FixedTextView
+            android:id="@+id/tvPriceHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:drawableEnd="@drawable/twotone_open_in_new_12"
+            android:drawablePadding="6dp"
+            android:drawableTint="?android:attr/textColorLink"
+            android:text="@string/title_pro_price"
+            android:textAppearance="@style/TextAppearance.AppCompat.Small"
+            android:textColor="?android:attr/textColorLink"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tvHint" />
+
+        <eu.faircode.email.FixedTextView
+            android:id="@+id/tvFamilyHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:drawableEnd="@drawable/twotone_open_in_new_12"
+            android:drawablePadding="6dp"
+            android:drawableTint="?android:attr/textColorLink"
+            android:text="@string/title_pro_family"
+            android:textAppearance="@style/TextAppearance.AppCompat.Small"
+            android:textColor="?android:attr/textColorLink"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tvPriceHint" />
+
+        <eu.faircode.email.FixedTextView
+            android:id="@+id/tvRestoreHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:drawableEnd="@drawable/twotone_open_in_new_12"
+            android:drawablePadding="6dp"
+            android:drawableTint="?android:attr/textColorLink"
+            android:text="@string/title_pro_restore"
+            android:textAppearance="@style/TextAppearance.AppCompat.Small"
+            android:textColor="?android:attr/textColorLink"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tvFamilyHint" />
+
+        <Button
+            android:id="@+id/btnConsume"
+            style="?android:attr/buttonStyleSmall"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Consume"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tvRestoreHint" />
+
+        <ImageView
+            android:id="@+id/ivConnected"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:contentDescription="@string/title_pro_purchase"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tvRestoreHint"
+            app:srcCompat="@drawable/twotone_cloud_off_24" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</eu.faircode.email.ScrollViewEx>

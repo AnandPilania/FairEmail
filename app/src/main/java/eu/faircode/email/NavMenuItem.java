@@ -16,14 +16,18 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
+
+import java.util.Objects;
 
 public class NavMenuItem {
     private int icon;
+    private Integer color;
     private int title;
+    private String subtitle = null;
+    private int extraicon;
     private Integer count = null;
-    private boolean external = false;
     private boolean warning = false;
     private boolean separated = false;
     private Runnable click;
@@ -42,6 +46,21 @@ public class NavMenuItem {
         this.longClick = longClick;
     }
 
+    NavMenuItem setColor(Integer color) {
+        this.color = color;
+        return this;
+    }
+
+    NavMenuItem setSubtitle(String subtitle) {
+        this.subtitle = subtitle;
+        return this;
+    }
+
+    NavMenuItem setExtraIcon(int icon) {
+        this.extraicon = icon;
+        return this;
+    }
+
     void setCount(Integer count) {
         if (count != null && count == 0)
             count = null;
@@ -49,12 +68,13 @@ public class NavMenuItem {
     }
 
     NavMenuItem setExternal(boolean external) {
-        this.external = external;
+        setExtraIcon(external ? R.drawable.twotone_open_in_new_24 : 0);
         return this;
     }
 
-    void setWarning(boolean warning) {
+    NavMenuItem setWarning(boolean warning) {
         this.warning = warning;
+        return this;
     }
 
     NavMenuItem setSeparated() {
@@ -66,8 +86,20 @@ public class NavMenuItem {
         return this.icon;
     }
 
+    Integer getColor() {
+        return this.color;
+    }
+
     int getTitle() {
         return this.title;
+    }
+
+    String getSubtitle() {
+        return this.subtitle;
+    }
+
+    int getExtraIcon() {
+        return this.extraicon;
     }
 
     Integer getCount() {
@@ -78,21 +110,47 @@ public class NavMenuItem {
         return this.separated;
     }
 
-    boolean isExternal() {
-        return this.external;
-    }
-
     boolean hasWarning() {
         return this.warning;
     }
 
     void onClick() {
-        click.run();
+        try {
+            click.run();
+        } catch (Throwable ex) {
+            Log.e(ex);
+        }
     }
 
     boolean onLongClick() {
-        if (longClick != null)
-            longClick.run();
-        return (longClick != null);
+        try {
+            if (longClick != null)
+                longClick.run();
+            return (longClick != null);
+        } catch (Throwable ex) {
+            Log.e(ex);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean equals(Object object) {
+        if (object instanceof NavMenuItem) {
+            NavMenuItem other = (NavMenuItem) object;
+            return (this.icon == other.icon &&
+                    Objects.equals(this.color, other.color) &&
+                    this.title == other.title &&
+                    Objects.equals(this.subtitle, other.subtitle) &&
+                    this.extraicon == other.extraicon &&
+                    Objects.equals(this.count, other.count) &&
+                    this.warning == other.warning &&
+                    this.separated == other.separated);
+        } else
+            return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(icon, color, title, subtitle, extraicon, count, warning, separated);
     }
 }

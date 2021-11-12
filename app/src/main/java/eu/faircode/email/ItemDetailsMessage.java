@@ -16,7 +16,7 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import androidx.annotation.Nullable;
@@ -32,7 +32,7 @@ public class ItemDetailsMessage extends ItemDetailsLookup.ItemDetails<Long> {
     @Override
     public int getPosition() {
         int pos = viewHolder.getAdapterPosition();
-        Log.i("ItemDetails pos=" + pos);
+        Log.d("ItemDetails pos=" + pos);
         return pos;
     }
 
@@ -41,7 +41,7 @@ public class ItemDetailsMessage extends ItemDetailsLookup.ItemDetails<Long> {
     public Long getSelectionKey() {
         int pos = viewHolder.getAdapterPosition();
         Long key = viewHolder.getKey();
-        Log.i("ItemDetails pos=" + pos + " key=" + key);
+        Log.d("ItemDetails pos=" + pos + " key=" + key);
         return key;
     }
 }

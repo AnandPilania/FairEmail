@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="eu.faircode.email">
+    xmlns:tools="http://schemas.android.com/tools"
+    package="eu.faircode.email"
+    android:installLocation="internalOnly">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -8,17 +10,31 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="com.android.vending.BILLING" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <uses-permission android:name="com.android.vending.BILLING" />
+
+    <!-- OAuth -->
+    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
+    <uses-permission
+        android:name="android.permission.USE_CREDENTIALS"
+        android:maxSdkVersion="22" />
+    <uses-permission
+        android:name="android.permission.READ_PROFILE"
+        android:maxSdkVersion="22" />
+
+    <!-- https://github.com/leolin310148/ShortcutBadger/pull/368 -->
+    <uses-permission android:name="com.vivo.notification.permission.BADGE_ICON" />
 
     <!-- https://developer.android.com/guide/topics/manifest/uses-feature-element#features-reference -->
     <uses-feature
         android:name="android.software.app_widgets"
         android:required="false" />
-    <uses-feature
+    <!--uses-feature
         android:name="android.software.webview"
-        android:required="false" />
+        android:required="false" /-->
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false" />
@@ -26,19 +42,69 @@
         android:name="android.hardware.fingerprint"
         android:required="false" />
 
+    <!-- Android 11: https://developer.android.com/preview/privacy/package-visibility -->
+    <!-- https://developer.android.com/training/package-visibility/use-cases -->
+    <queries>
+        <!-- Customtabs -->
+        <!-- https://developers.google.com/web/updates/2020/07/custom-tabs-android-11#detecting_browsers_that_support_custom_tabs -->
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+
+        <intent>
+            <action android:name="android.intent.action.INSERT" />
+        </intent>
+
+        <intent>
+            <action android:name="android.intent.action.GET_CONTENT" />
+            <category android:name="android.intent.category.OPENABLE" />
+            <data android:mimeType="*/*" />
+        </intent>
+
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+
+        <intent>
+            <action android:name="android.provider.MediaStore.RECORD_SOUND" />
+        </intent>
+
+        <package android:name="com.android.vending" />
+
+        <package android:name="org.sufficientlysecure.keychain" />
+        <package android:name="org.sufficientlysecure.keychain.debug" />
+
+        <intent>
+            <action android:name="org.openintents.openpgp.IOpenPgpService2" />
+        </intent>
+
+        <!-- https://android-developers.googleblog.com/2015/10/in-app-translations-in-android.html -->
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
+        </intent>
+
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:name=".ApplicationEx"
         android:allowBackup="false"
         android:appCategory="productivity"
+        android:forceDarkAllowed="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:networkSecurityConfig="@xml/network_security_config"
         android:requestLegacyExternalStorage="true"
+        android:resizeableActivity="true"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/AppThemeLight">
+        android:theme="@style/AppThemeBlueOrangeLight">
+        <!-- https://developer.samsung.com/samsung-dex/modify-optimizing.html -->
 
-        <!-- do not contact Google servers -->
+        <!-- https://developer.android.com/guide/webapps/managing-webview#metrics -->
         <meta-data
             android:name="android.webkit.WebView.MetricsOptOut"
             android:value="true" />
@@ -48,14 +114,13 @@
         <meta-data
             android:name="android.allow_multiple_resumed_activities"
             android:value="true" />
-
-        <!-- Bugsnag -->
         <meta-data
-            android:name="com.bugsnag.android.DETECT_ANRS"
-            android:value="false" />
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/car" />
+        <!-- https://play.google.com/about/auto/developer-distribution-agreement-addendum/ -->
         <meta-data
-            android:name="com.bugsnag.android.DETECT_NDK_CRASHES"
-            android:value="false" />
+            android:name="com.bugsnag.android.API_KEY"
+            android:value="9d2d57476a0614974449a3ec33f2604a" />
 
         <activity
             android:name=".ActivityMain"
@@ -70,24 +135,65 @@
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_EMAIL" />
             </intent-filter>
 
             <intent-filter>
                 <action android:name="${applicationId}.REFRESH" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+
+            <intent-filter>
+                <!-- legacy -->
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="message" />
+                <data android:host="${applicationId}" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="message" />
+                <data android:host="email.faircode.eu" />
+            </intent-filter>
         </activity>
 
         <activity
             android:name=".ActivitySetup"
-            android:exported="true"
-            android:launchMode="singleInstance"
-            android:parentActivityName=".ActivityMain">
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:parentActivityName=".ActivityMain" />
+
+        <activity
+            android:name=".ActivitySignature"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:parentActivityName=".ActivitySetup" />
+
+        <activity
+            android:name=".ActivityWidget"
+            android:exported="true">
 
             <intent-filter>
-                <action android:name="android.intent.action.APPLICATION_PREFERENCES" />
-                <category android:name="android.intent.category.DEFAULT" />
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ActivityWidgetSync"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>
         </activity>
 
@@ -103,7 +209,7 @@
         <activity
             android:name=".ActivityView"
             android:exported="false"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:parentActivityName=".ActivityMain" />
 
         <activity
@@ -113,8 +219,33 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:label="@string/app_search"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.AppCompat.Translucent">
+
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.BROWSABLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:scheme="eu.faircode.email.search" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ActivityAnswer"
+            android:enabled="false"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:icon="@drawable/twotone_reply_24"
+            android:label="@string/app_answer"
+            android:launchMode="singleTask">
 
             <intent-filter>
                 <action android:name="android.intent.action.PROCESS_TEXT" />
@@ -126,22 +257,11 @@
         <activity
             android:name=".ActivityCompose"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:parentActivityName=".ActivityView">
-
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <action android:name="android.intent.action.SEND_MULTIPLE" />
-
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="*/*" />
-            </intent-filter>
-
-            <intent-filter>
-                <action android:name="android.intent.action.SENDTO" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="mailto" />
-            </intent-filter>
+            <meta-data
+                android:name="android.service.chooser.chooser_target_service"
+                android:value="androidx.sharetarget.ChooserTargetServiceCompat" />
 
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -151,13 +271,32 @@
 
                 <data android:scheme="mailto" />
             </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.SENDTO" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="mailto" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
         </activity>
 
         <activity
-            android:name=".ActivityEml"
+            android:name=".ActivityError"
+            android:exported="false"
+            android:launchMode="singleTask" />
+
+        <activity
+            android:name=".ActivityEML"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
-            android:launchMode="singleTop">
+            android:launchMode="singleTask">
 
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -191,7 +330,7 @@
             android:name=".ActivityDSN"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
-            android:launchMode="singleTop">
+            android:launchMode="singleTask">
 
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -209,32 +348,85 @@
 
         <activity
             android:name=".ActivityBilling"
+            android:exported="false"
             android:icon="@mipmap/ic_launcher"
-            android:launchMode="singleInstance" />
+            android:launchMode="singleTask" />
+
+        <!-- https://developer.android.com/training/permissions/explaining-access -->
+        <activity
+            android:name=".ActivityRationale"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:launchMode="singleTask"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
+            android:theme="@style/Theme.AppCompat.Translucent">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE_FOR_PERIOD" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name="net.openid.appauth.RedirectUriReceiverActivity"
+            android:exported="true"
+            tools:node="replace">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="oauth.faircode.eu"
+                    android:scheme="https" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="eu.faircode.email" />
+            </intent-filter>
+        </activity>
 
         <service
             android:name=".ServiceSynchronize"
+            android:exported="false"
             android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".ServiceSend"
+            android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <service android:name=".ServiceUI" />
+        <service
+            android:name=".ServiceUI"
+            android:exported="false" />
 
         <service
             android:name=".ServiceExternal"
+            android:exported="true"
             android:foregroundServiceType="dataSync">
 
             <intent-filter>
+                <action android:name="${applicationId}.POLL" />
                 <action android:name="${applicationId}.ENABLE" />
                 <action android:name="${applicationId}.DISABLE" />
+                <action android:name="${applicationId}.INTERVAL" />
+                <action android:name="${applicationId}.DISCONNECT.ME" />
             </intent-filter>
         </service>
 
         <service
             android:name=".ServiceTileSynchronize"
-            android:icon="@drawable/baseline_sync_disabled_24"
+            android:exported="true"
+            android:icon="@drawable/twotone_sync_disabled_24"
             android:label="@string/app_name"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
 
@@ -245,12 +437,24 @@
 
         <service
             android:name=".ServiceTileUnseen"
-            android:icon="@drawable/baseline_mail_outline_24"
+            android:exported="true"
+            android:icon="@drawable/twotone_mail_outline_24"
             android:label="@string/tile_unseen"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
 
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".ServicePowerControl"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_CONTROLS">
+            <intent-filter>
+                <action android:name="android.service.controls.ControlsProviderService" />
             </intent-filter>
         </service>
 
@@ -267,7 +471,8 @@
 
         <receiver
             android:name=".Widget"
-            android:label="@string/tile_unseen">
+            android:exported="true"
+            android:label="@string/title_widget_title_count">
 
             <meta-data
                 android:name="android.appwidget.provider"
@@ -280,7 +485,8 @@
 
         <receiver
             android:name=".WidgetUnified"
-            android:label="@string/title_folder_unified">
+            android:exported="true"
+            android:label="@string/title_widget_title_list">
 
             <meta-data
                 android:name="android.appwidget.provider"
@@ -291,11 +497,28 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".WidgetSync"
+            android:exported="true"
+            android:label="@string/title_widget_title_sync">
+
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_sync" />
+
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name="WidgetUnifiedService"
+            android:exported="true"
             android:permission="android.permission.BIND_REMOTEVIEWS" />
 
-        <receiver android:name=".ReceiverAutoStart">
+        <receiver
+            android:name=".ReceiverAutoStart"
+            android:exported="true">
 
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
@@ -303,6 +526,10 @@
 
             <intent-filter>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
     </application>

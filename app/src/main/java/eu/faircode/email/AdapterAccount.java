@@ -16,36 +16,54 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
+
+import static eu.faircode.email.ServiceAuthenticator.AUTH_TYPE_PASSWORD;
 
 import android.annotation.TargetApi;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.SpannableString;
+import android.text.TextUtils;
+import android.text.style.RelativeSizeSpan;
+import android.text.style.StyleSpan;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.TouchDelegate;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.constraintlayout.widget.Group;
 import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+import androidx.fragment.app.FragmentTransaction;
 import androidx.lifecycle.Lifecycle;
 import androidx.lifecycle.LifecycleObserver;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.OnLifecycleEvent;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ListUpdateCallback;
 import androidx.recyclerview.widget.RecyclerView;
@@ -63,8 +81,10 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
     private LifecycleOwner owner;
     private LayoutInflater inflater;
 
+    private int colorWarning;
     private int colorUnread;
     private int textColorSecondary;
+    private boolean debug;
 
     private List<TupleAccountEx> items = new ArrayList<>();
 
@@ -74,19 +94,29 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
     public class ViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener, View.OnLongClickListener {
         private View view;
         private View vwColor;
+        private ImageView ivOAuth;
         private ImageView ivPrimary;
         private ImageView ivNotify;
         private TextView tvName;
         private ImageView ivSync;
+        private ImageButton ibInbox;
         private TextView tvUser;
         private ImageView ivState;
         private TextView tvHost;
+        private TextView tvCreated;
         private TextView tvLast;
-        private TextView tvAuthorize;
+        private TextView tvUsage;
+        private TextView tvBackoff;
+        private TextView tvQuota;
+        private TextView tvMaxSize;
+        private TextView tvId;
+        private TextView tvCapabilities;
         private TextView tvIdentity;
         private TextView tvDrafts;
+        private TextView tvSent;
         private TextView tvWarning;
         private TextView tvError;
+        private Button btnHelp;
         private Group grpSettings;
 
         private TwoStateOwner powner = new TwoStateOwner(owner, "AccountPopup");
@@ -97,29 +127,60 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
             view = itemView.findViewById(R.id.clItem);
             vwColor = itemView.findViewById(R.id.vwColor);
             ivSync = itemView.findViewById(R.id.ivSync);
+            ibInbox = itemView.findViewById(R.id.ibInbox);
+            ivOAuth = itemView.findViewById(R.id.ivOAuth);
             ivPrimary = itemView.findViewById(R.id.ivPrimary);
             ivNotify = itemView.findViewById(R.id.ivNotify);
             tvName = itemView.findViewById(R.id.tvName);
             tvUser = itemView.findViewById(R.id.tvUser);
             ivState = itemView.findViewById(R.id.ivState);
             tvHost = itemView.findViewById(R.id.tvHost);
+            tvCreated = itemView.findViewById(R.id.tvCreated);
             tvLast = itemView.findViewById(R.id.tvLast);
-            tvAuthorize = itemView.findViewById(R.id.tvAuthorize);
+            tvUsage = itemView.findViewById(R.id.tvUsage);
+            tvBackoff = itemView.findViewById(R.id.tvBackoff);
+            tvQuota = itemView.findViewById(R.id.tvQuota);
+            tvMaxSize = itemView.findViewById(R.id.tvMaxSize);
+            tvId = itemView.findViewById(R.id.tvId);
+            tvCapabilities = itemView.findViewById(R.id.tvCapabilities);
             tvIdentity = itemView.findViewById(R.id.tvIdentity);
             tvDrafts = itemView.findViewById(R.id.tvDrafts);
+            tvSent = itemView.findViewById(R.id.tvSent);
             tvWarning = itemView.findViewById(R.id.tvWarning);
             tvError = itemView.findViewById(R.id.tvError);
+            btnHelp = itemView.findViewById(R.id.btnHelp);
             grpSettings = itemView.findViewById(R.id.grpSettings);
         }
 
         private void wire() {
+            view.post(new Runnable() {
+                @Override
+                public void run() {
+                    int left = ibInbox.getLeft();
+                    int right = ibInbox.getRight();
+                    if (view.getLayoutDirection() == View.LAYOUT_DIRECTION_LTR)
+                        left = Math.min(left, right - view.getHeight());
+                    else
+                        right = Math.max(right, left + view.getHeight());
+                    Rect rect = new Rect(
+                            left,
+                            view.getTop(),
+                            right,
+                            view.getBottom());
+                    view.setTouchDelegate(new TouchDelegate(rect, ibInbox));
+                }
+            });
             view.setOnClickListener(this);
             view.setOnLongClickListener(this);
+            ibInbox.setOnClickListener(this);
+            btnHelp.setOnClickListener(this);
         }
 
         private void unwire() {
             view.setOnClickListener(null);
             view.setOnLongClickListener(null);
+            ibInbox.setOnClickListener(null);
+            btnHelp.setOnClickListener(null);
         }
 
         private void bindTo(TupleAccountEx account) {
@@ -127,14 +188,19 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
             vwColor.setBackgroundColor(account.color == null ? Color.TRANSPARENT : account.color);
             vwColor.setVisibility(ActivityBilling.isPro(context) ? View.VISIBLE : View.INVISIBLE);
 
-            ivSync.setImageResource(account.synchronize ? R.drawable.baseline_sync_24 : R.drawable.baseline_sync_disabled_24);
+            ivSync.setImageResource(account.synchronize ? R.drawable.twotone_sync_24 : R.drawable.twotone_sync_disabled_24);
+            ivSync.setContentDescription(context.getString(account.synchronize ? R.string.title_legend_synchronize_on : R.string.title_legend_synchronize_off));
 
+            ivOAuth.setVisibility(
+                    settings && account.auth_type != AUTH_TYPE_PASSWORD ? View.VISIBLE : View.GONE);
             ivPrimary.setVisibility(account.primary ? View.VISIBLE : View.GONE);
             ivNotify.setVisibility(account.notify ? View.VISIBLE : View.GONE);
 
-            if (settings)
+            if (settings) {
                 tvName.setText(account.name);
-            else {
+                tvName.setTextColor(account.protocol == EntityAccount.TYPE_IMAP
+                        ? textColorSecondary : colorWarning);
+            } else {
                 if (account.unseen > 0)
                     tvName.setText(context.getString(R.string.title_name_count, account.name, NF.format(account.unseen)));
                 else
@@ -146,47 +212,132 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
 
             tvUser.setText(account.user);
 
-            if ("connected".equals(account.state))
-                ivState.setImageResource(R.drawable.baseline_cloud_24);
-            else if ("connecting".equals(account.state))
-                ivState.setImageResource(R.drawable.baseline_cloud_queue_24);
-            else if ("closing".equals(account.state))
-                ivState.setImageResource(R.drawable.baseline_close_24);
-            else
-                ivState.setImageResource(R.drawable.baseline_cloud_off_24);
-            ivState.setVisibility(account.synchronize ? View.VISIBLE : View.INVISIBLE);
+            if ("connected".equals(account.state)) {
+                ivState.setImageResource(R.drawable.twotone_cloud_done_24);
+                ivState.setContentDescription(context.getString(R.string.title_legend_connected));
+            } else if ("connecting".equals(account.state)) {
+                ivState.setImageResource(R.drawable.twotone_cloud_queue_24);
+                ivState.setContentDescription(context.getString(R.string.title_legend_connecting));
+            } else if ("closing".equals(account.state)) {
+                ivState.setImageResource(R.drawable.twotone_cancel_24);
+                ivState.setContentDescription(context.getString(R.string.title_legend_closing));
+            } else {
+                if (account.backoff_until == null) {
+                    ivState.setImageResource(R.drawable.twotone_cloud_off_24);
+                    ivState.setContentDescription(context.getString(R.string.title_legend_disconnected));
+                } else {
+                    ivState.setImageResource(R.drawable.twotone_update_24);
+                    ivState.setContentDescription(context.getString(R.string.title_legend_backoff));
+                }
+            }
+            ivState.setVisibility(account.synchronize || account.state != null ? View.VISIBLE : View.INVISIBLE);
 
             tvHost.setText(String.format("%s:%d", account.host, account.port));
+            tvCreated.setVisibility(debug ? View.VISIBLE : View.GONE);
+            tvCreated.setText(context.getString(R.string.title_created_at,
+                    account.created == null ? null : DTF.format(account.created)));
             tvLast.setText(context.getString(R.string.title_last_connected,
-                    account.last_connected == null ? "-" : DTF.format(account.last_connected)));
+                    (account.last_connected == null ? "-" : DTF.format(account.last_connected)) +
+                            (BuildConfig.DEBUG ?
+                                    " " + account.poll_interval +
+                                            "/" + account.keep_alive_ok +
+                                            "/" + account.keep_alive_failed +
+                                            "/" + account.keep_alive_succeeded : "")));
 
-            tvAuthorize.setVisibility(account.auth_type == ConnectionHelper.AUTH_TYPE_PASSWORD ? View.GONE : View.VISIBLE);
+            tvBackoff.setText(context.getString(R.string.title_backoff_until,
+                    account.backoff_until == null ? "-" : DTF.format(account.backoff_until)));
+            tvBackoff.setVisibility(account.backoff_until == null || !settings ? View.GONE : View.VISIBLE);
+
+            Integer percent = (settings ? null : account.getQuotaPercentage());
+            tvUsage.setText(percent == null ? null : NF.format(percent) + "%");
+            tvUsage.setVisibility(percent == null ? View.GONE : View.VISIBLE);
+            tvQuota.setText(context.getString(R.string.title_storage_quota,
+                    (account.quota_usage == null ? "-" : Helper.humanReadableByteCount(account.quota_usage)),
+                    (account.quota_limit == null ? "-" : Helper.humanReadableByteCount(account.quota_limit))));
+            tvQuota.setVisibility(settings && (account.quota_usage != null || account.quota_limit != null) ? View.VISIBLE : View.GONE);
+
+            tvMaxSize.setText(account.max_size == null ? null : Helper.humanReadableByteCount(account.max_size));
+            tvMaxSize.setVisibility(settings && account.max_size != null && BuildConfig.DEBUG ? View.VISIBLE : View.GONE);
+            if (tvMaxSize.getVisibility() == View.VISIBLE)
+                tvQuota.setVisibility(View.VISIBLE);
+
+            tvId.setText(account.id + "/" + account.uuid);
+            tvId.setVisibility(settings && BuildConfig.DEBUG ? View.VISIBLE : View.GONE);
+
+            tvCapabilities.setText(account.capabilities);
+
+            tvCapabilities.setVisibility(settings && (debug || BuildConfig.DEBUG) &&
+                    !TextUtils.isEmpty(account.capabilities) ? View.VISIBLE : View.GONE);
+
             tvIdentity.setVisibility(account.identities > 0 || !settings ? View.GONE : View.VISIBLE);
-            tvDrafts.setVisibility(account.drafts || !settings ? View.GONE : View.VISIBLE);
+            tvDrafts.setVisibility(account.drafts != null || !settings ? View.GONE : View.VISIBLE);
+            tvSent.setVisibility(account.protocol != EntityAccount.TYPE_IMAP ||
+                    account.sent != null || !settings ? View.GONE : View.VISIBLE);
 
             tvWarning.setText(account.warning);
             tvWarning.setVisibility(account.warning == null || !settings ? View.GONE : View.VISIBLE);
 
             tvError.setText(account.error);
             tvError.setVisibility(account.error == null ? View.GONE : View.VISIBLE);
+            btnHelp.setVisibility(account.error == null ? View.GONE : View.VISIBLE);
 
+            ibInbox.setVisibility(settings ? View.GONE : View.VISIBLE);
             grpSettings.setVisibility(settings ? View.VISIBLE : View.GONE);
         }
 
         @Override
         public void onClick(View view) {
-            int pos = getAdapterPosition();
-            if (pos == RecyclerView.NO_POSITION)
-                return;
+            if (view.getId() == R.id.btnHelp)
+                Helper.viewFAQ(context, 22);
+            else {
+                int pos = getAdapterPosition();
+                if (pos == RecyclerView.NO_POSITION)
+                    return;
 
-            TupleAccountEx account = items.get(pos);
-            if (account.tbd != null)
-                return;
+                TupleAccountEx account = items.get(pos);
+                if (account.tbd != null)
+                    return;
 
-            LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(context);
-            lbm.sendBroadcast(
-                    new Intent(settings ? ActivitySetup.ACTION_EDIT_ACCOUNT : ActivityView.ACTION_VIEW_FOLDERS)
-                            .putExtra("id", account.id));
+                if (view.getId() == R.id.ibInbox) {
+                    Bundle args = new Bundle();
+                    args.putLong("id", account.id);
+
+                    new SimpleTask<EntityFolder>() {
+                        @Override
+                        protected EntityFolder onExecute(Context context, Bundle args) {
+                            long id = args.getLong("id");
+
+                            DB db = DB.getInstance(context);
+                            return db.folder().getFolderByType(id, EntityFolder.INBOX);
+                        }
+
+                        @Override
+                        protected void onExecuted(Bundle args, EntityFolder inbox) {
+                            if (inbox == null)
+                                return;
+
+                            LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(context);
+                            lbm.sendBroadcast(
+                                    new Intent(ActivityView.ACTION_VIEW_MESSAGES)
+                                            .putExtra("account", inbox.account)
+                                            .putExtra("folder", inbox.id)
+                                            .putExtra("type", inbox.type));
+
+                        }
+
+                        @Override
+                        protected void onException(Bundle args, Throwable ex) {
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
+                        }
+                    }.execute(context, owner, args, "account:inbox");
+                } else {
+                    LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(context);
+                    lbm.sendBroadcast(
+                            new Intent(settings ? ActivitySetup.ACTION_EDIT_ACCOUNT : ActivityView.ACTION_VIEW_FOLDERS)
+                                    .putExtra("id", account.id)
+                                    .putExtra("protocol", account.protocol));
+                }
+            }
         }
 
         @Override
@@ -201,41 +352,65 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
 
             PopupMenuLifecycle popupMenu = new PopupMenuLifecycle(context, powner, view);
 
-            popupMenu.getMenu().add(Menu.NONE, 0, 0, account.name).setEnabled(false);
+            int order = 0;
+            SpannableString ss = new SpannableString(account.name);
+            ss.setSpan(new StyleSpan(Typeface.ITALIC), 0, ss.length(), 0);
+            ss.setSpan(new RelativeSizeSpan(0.9f), 0, ss.length(), 0);
+            popupMenu.getMenu().add(Menu.NONE, 0, order++, ss).setEnabled(false);
 
-            popupMenu.getMenu().add(Menu.NONE, R.string.title_synchronize_enabled, 1, R.string.title_synchronize_enabled)
+            popupMenu.getMenu().add(Menu.NONE, R.string.title_enabled, order++, R.string.title_enabled)
                     .setCheckable(true).setChecked(account.synchronize);
+            popupMenu.getMenu().add(Menu.NONE, R.string.title_primary, order++, R.string.title_primary)
+                    .setCheckable(true).setChecked(account.primary);
 
-            if (account.notify && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (account.notify &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 String channelId = EntityAccount.getNotificationChannelId(account.id);
                 NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
                 NotificationChannel channel = nm.getNotificationChannel(channelId);
                 if (channel != null)
-                    popupMenu.getMenu().add(Menu.NONE, R.string.title_edit_channel, 2, R.string.title_edit_channel);
+                    popupMenu.getMenu().add(Menu.NONE, R.string.title_edit_channel, order++, R.string.title_edit_channel);
             }
 
+            if (account.protocol == EntityAccount.TYPE_IMAP && settings)
+                popupMenu.getMenu().add(Menu.NONE, R.string.title_copy, order++, R.string.title_copy);
+
             if (settings)
-                popupMenu.getMenu().add(Menu.NONE, R.string.title_copy, 3, R.string.title_copy);
+                popupMenu.getMenu().add(Menu.NONE, R.string.title_delete, order++, R.string.title_delete);
+
+            if (settings)
+                popupMenu.getMenu().add(Menu.NONE, R.string.title_log, order++, R.string.title_log);
+
+            if (debug)
+                popupMenu.getMenu().add(Menu.NONE, R.string.title_reset, order++, R.string.title_reset);
 
             popupMenu.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
                 @Override
                 public boolean onMenuItemClick(MenuItem item) {
-                    switch (item.getItemId()) {
-                        case R.string.title_synchronize_enabled:
-                            onActionSync(!item.isChecked());
-                            return true;
-
-                        case R.string.title_edit_channel:
-                            onActionEditChannel();
-                            return true;
-
-                        case R.string.title_copy:
-                            onActionCopy();
-                            return true;
-
-                        default:
-                            return false;
+                    int itemId = item.getItemId();
+                    if (itemId == R.string.title_enabled) {
+                        onActionSync(!item.isChecked());
+                        return true;
+                    } else if (itemId == R.string.title_primary) {
+                        onActionPrimary(!item.isChecked());
+                        return true;
+                    } else if (itemId == R.string.title_edit_channel) {
+                        onActionEditChannel();
+                        return true;
+                    } else if (itemId == R.string.title_copy) {
+                        onActionCopy();
+                        return true;
+                    } else if (itemId == R.string.title_delete) {
+                        onActionDelete();
+                        return true;
+                    } else if (itemId == R.string.title_log) {
+                        onActionLog();
+                        return true;
+                    } else if (itemId == R.string.title_reset) {
+                        onActionReset();
+                        return true;
                     }
+                    return false;
                 }
 
                 private void onActionSync(boolean sync) {
@@ -250,25 +425,66 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
                             boolean sync = args.getBoolean("sync");
 
                             DB db = DB.getInstance(context);
-                            if (!sync) {
-                                db.account().setAccountWarning(id, null);
-                                db.account().setAccountError(id, null);
+                            try {
+                                db.beginTransaction();
+
+                                if (!sync) {
+                                    db.account().setAccountWarning(id, null);
+                                    db.account().setAccountError(id, null);
+                                    db.account().setAccountConnected(id, null);
+                                }
+
+                                db.account().setAccountSynchronize(id, sync);
+
+                                db.setTransactionSuccessful();
+                            } finally {
+                                db.endTransaction();
                             }
-                            db.account().setAccountSynchronize(id, sync);
+
+                            ServiceSynchronize.eval(context, "account sync=" + sync);
 
                             return sync;
                         }
 
                         @Override
-                        protected void onExecuted(Bundle args, Boolean sync) {
-                            ServiceSynchronize.reload(context, "account set sync=" + sync);
+                        protected void onException(Bundle args, Throwable ex) {
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
+                        }
+                    }.execute(context, owner, args, "account:enable");
+                }
+
+                private void onActionPrimary(boolean primary) {
+                    Bundle args = new Bundle();
+                    args.putLong("id", account.id);
+                    args.putBoolean("primary", primary);
+
+                    new SimpleTask<Void>() {
+                        @Override
+                        protected Void onExecute(Context context, Bundle args) {
+                            long id = args.getLong("id");
+                            boolean primary = args.getBoolean("primary");
+
+                            DB db = DB.getInstance(context);
+                            try {
+                                db.beginTransaction();
+
+                                if (primary)
+                                    db.account().resetPrimary();
+                                db.account().setAccountPrimary(id, primary);
+
+                                db.setTransactionSuccessful();
+                            } finally {
+                                db.endTransaction();
+                            }
+
+                            return null;
                         }
 
                         @Override
                         protected void onException(Bundle args, Throwable ex) {
-                            Helper.unexpectedError(parentFragment.getFragmentManager(), ex);
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
                         }
-                    }.execute(context, owner, args, "account:enable");
+                    }.execute(context, owner, args, "account:primary");
                 }
 
                 @TargetApi(Build.VERSION_CODES.O)
@@ -276,7 +492,12 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
                     Intent intent = new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
                             .putExtra(Settings.EXTRA_APP_PACKAGE, context.getPackageName())
                             .putExtra(Settings.EXTRA_CHANNEL_ID, EntityAccount.getNotificationChannelId(account.id));
-                    context.startActivity(intent);
+                    try {
+                        context.startActivity(intent);
+                    } catch (ActivityNotFoundException ex) {
+                        Log.w(ex);
+                        Helper.reportNoViewer(context, intent);
+                    }
                 }
 
                 private void onActionCopy() {
@@ -284,7 +505,94 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
                     lbm.sendBroadcast(
                             new Intent(ActivitySetup.ACTION_EDIT_ACCOUNT)
                                     .putExtra("id", account.id)
+                                    .putExtra("protocol", account.protocol)
                                     .putExtra("copy", true));
+                }
+
+                private void onActionDelete() {
+                    new AlertDialog.Builder(view.getContext())
+                            .setIcon(R.drawable.twotone_warning_24)
+                            .setTitle(account.name)
+                            .setMessage(R.string.title_account_delete)
+                            .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
+                                @Override
+                                public void onClick(DialogInterface dialog, int which) {
+                                    onDelete();
+                                }
+                            })
+                            .setNegativeButton(android.R.string.cancel, new DialogInterface.OnClickListener() {
+                                @Override
+                                public void onClick(DialogInterface dialog, int which) {
+                                    // Do nothing
+                                }
+                            })
+                            .show();
+                }
+
+                private void onActionLog() {
+                    if (owner.getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
+                        parentFragment.getParentFragmentManager().popBackStack("logs", FragmentManager.POP_BACK_STACK_INCLUSIVE);
+
+                    Bundle args = new Bundle();
+                    args.putLong("account", account.id);
+
+                    Fragment fragment = new FragmentLogs();
+                    fragment.setArguments(args);
+
+                    FragmentTransaction fragmentTransaction = parentFragment.getParentFragmentManager().beginTransaction();
+                    fragmentTransaction.replace(R.id.content_frame, fragment).addToBackStack("logs");
+                    fragmentTransaction.commit();
+                }
+
+                private void onActionReset() {
+                    Bundle args = new Bundle();
+                    args.putLong("id", account.id);
+
+                    new SimpleTask<Void>() {
+                        @Override
+                        protected void onPostExecute(Bundle args) {
+                            ToastEx.makeText(context, R.string.title_completed, Toast.LENGTH_LONG).show();
+                        }
+
+                        @Override
+                        protected Void onExecute(Context context, Bundle args) throws Throwable {
+                            long id = args.getLong("id");
+
+                            DB db = DB.getInstance(context);
+                            db.account().resetCreated(id);
+
+                            return null;
+                        }
+
+                        @Override
+                        protected void onException(Bundle args, Throwable ex) {
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
+                        }
+                    }.execute(context, owner, args, "account:reset");
+                }
+
+                private void onDelete() {
+                    Bundle args = new Bundle();
+                    args.putLong("id", account.id);
+
+                    new SimpleTask<Void>() {
+                        @Override
+                        protected Void onExecute(Context context, Bundle args) {
+                            long id = args.getLong("id");
+
+                            DB db = DB.getInstance(context);
+                            db.account().setAccountTbd(id);
+
+                            ServiceSynchronize.eval(context, "delete account");
+
+                            return null;
+                        }
+
+                        @Override
+                        protected void onException(Bundle args, Throwable ex) {
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
+                        }
+                    }.execute(context, owner, args, "account:delete");
                 }
             });
 
@@ -302,18 +610,24 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
         this.owner = parentFragment.getViewLifecycleOwner();
         this.inflater = LayoutInflater.from(context);
 
-        this.colorUnread = Helper.resolveColor(context, R.attr.colorUnread);
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        boolean highlight_unread = prefs.getBoolean("highlight_unread", true);
+        this.colorWarning = Helper.resolveColor(context, R.attr.colorWarning);
+        int colorHighlight = prefs.getInt("highlight_color", Helper.resolveColor(context, R.attr.colorUnreadHighlight));
+        this.colorUnread = (highlight_unread ? colorHighlight : Helper.resolveColor(context, R.attr.colorUnread));
         this.textColorSecondary = Helper.resolveColor(context, android.R.attr.textColorSecondary);
+        this.debug = prefs.getBoolean("debug", false);
 
-        this.DTF = Helper.getDateTimeInstance(context, DateFormat.SHORT, DateFormat.SHORT);
+        this.DTF = Helper.getDateTimeInstance(context, DateFormat.SHORT, DateFormat.MEDIUM);
 
         setHasStableIds(true);
 
         owner.getLifecycle().addObserver(new LifecycleObserver() {
             @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
             public void onDestroyed() {
-                Log.i(AdapterAccount.this + " parent destroyed");
+                Log.d(AdapterAccount.this + " parent destroyed");
                 AdapterAccount.this.parentFragment = null;
+                owner.getLifecycle().removeObserver(this);
             }
         });
     }
@@ -328,28 +642,28 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
         diff.dispatchUpdatesTo(new ListUpdateCallback() {
             @Override
             public void onInserted(int position, int count) {
-                Log.i("Inserted @" + position + " #" + count);
+                Log.d("Inserted @" + position + " #" + count);
             }
 
             @Override
             public void onRemoved(int position, int count) {
-                Log.i("Removed @" + position + " #" + count);
+                Log.d("Removed @" + position + " #" + count);
             }
 
             @Override
             public void onMoved(int fromPosition, int toPosition) {
-                Log.i("Moved " + fromPosition + ">" + toPosition);
+                Log.d("Moved " + fromPosition + ">" + toPosition);
             }
 
             @Override
             public void onChanged(int position, int count, Object payload) {
-                Log.i("Changed @" + position + " #" + count);
+                Log.d("Changed @" + position + " #" + count);
             }
         });
         diff.dispatchUpdatesTo(this);
     }
 
-    private class DiffCallback extends DiffUtil.Callback {
+    private static class DiffCallback extends DiffUtil.Callback {
         private List<TupleAccountEx> prev = new ArrayList<>();
         private List<TupleAccountEx> next = new ArrayList<>();
 
@@ -379,13 +693,20 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
         public boolean areContentsTheSame(int oldItemPosition, int newItemPosition) {
             TupleAccountEx f1 = prev.get(oldItemPosition);
             TupleAccountEx f2 = next.get(newItemPosition);
-            return f1.uiEquals(f2);
+            return f1.equals(f2);
         }
     }
 
     @Override
     public long getItemId(int position) {
         return items.get(position).id;
+    }
+
+    public TupleAccountEx getItemAtPosition(int pos) {
+        if (pos >= 0 && pos < items.size())
+            return items.get(pos);
+        else
+            return null;
     }
 
     @Override
@@ -401,16 +722,11 @@ public class AdapterAccount extends RecyclerView.Adapter<AdapterAccount.ViewHold
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        holder.unwire();
-
         TupleAccountEx account = items.get(position);
+        holder.powner.recreate(account == null ? null : account.id);
+
+        holder.unwire();
         holder.bindTo(account);
-
         holder.wire();
-    }
-
-    @Override
-    public void onViewRecycled(@NonNull ViewHolder holder) {
-        holder.powner.recreate();
     }
 }

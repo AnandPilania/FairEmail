@@ -16,7 +16,7 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import androidx.lifecycle.LiveData;
@@ -30,7 +30,7 @@ import java.util.List;
 public interface DaoAttachment {
     @Query("SELECT * FROM attachment" +
             " WHERE message = :message" +
-            " ORDER BY sequence")
+            " ORDER BY sequence, subsequence")
     LiveData<List<EntityAttachment>> liveAttachments(long message);
 
     @Query("SELECT ifnull(MAX(sequence), 0)" +
@@ -40,7 +40,7 @@ public interface DaoAttachment {
 
     @Query("SELECT * FROM attachment" +
             " WHERE message = :message" +
-            " ORDER BY sequence")
+            " ORDER BY sequence, subsequence")
     List<EntityAttachment> getAttachments(long message);
 
     @Query("SELECT * FROM attachment" +
@@ -64,38 +64,74 @@ public interface DaoAttachment {
 
     @Query("UPDATE attachment" +
             " SET message = :message" +
-            " WHERE id = :id")
+            " WHERE id = :id" +
+            " AND NOT (message IS :message)")
     void setMessage(long id, long message);
 
     @Query("UPDATE attachment" +
             " SET error = NULL, progress = :progress, available = 0" +
-            " WHERE id = :id")
+            " WHERE id = :id" +
+            " AND (error IS NOT NULL OR NOT (progress IS :progress) OR NOT (available IS 0))")
     void setProgress(long id, Integer progress);
 
     @Query("UPDATE attachment" +
             " SET size = :size, error = NULL, progress = NULL, available = 1" +
-            " WHERE id = :id")
+            " WHERE id = :id" +
+            " AND (NOT (size IS :size) OR error IS NOT NULL OR progress IS NOT NULL OR NOT (available IS 1))")
     void setDownloaded(long id, Long size);
 
     @Query("UPDATE attachment" +
             " SET size = NULL, progress = NULL, available = :available" +
-            " WHERE id = :id")
+            " WHERE id = :id" +
+            " AND (size IS NOT NULL OR progress IS NOT NULL OR NOT (available IS :available))")
     void setAvailable(long id, boolean available);
 
     @Query("UPDATE attachment" +
+            " SET size = NULL, progress = NULL, available = 0" +
+            " WHERE message = :message" +
+            " AND (size IS NOT NULL OR progress IS NOT NULL OR NOT (available IS 0))")
+    void resetAvailable(long message);
+
+    @Query("UPDATE attachment" +
             " SET error = :error, progress = NULL, available = 0" +
-            " WHERE id = :id")
+            " WHERE id = :id" +
+            " AND (NOT (error IS :error) OR progress IS NOT NULL OR NOT (available IS 0))")
     void setError(long id, String error);
 
     @Query("UPDATE attachment" +
+            " SET type = :type" +
+            " WHERE id = :id" +
+            " AND NOT (type IS :type)")
+    void setType(long id, String type);
+
+    @Query("UPDATE attachment" +
             " SET disposition = :disposition" +
-            " WHERE id = :id")
+            " WHERE id = :id" +
+            " AND NOT (disposition IS :disposition)")
     void setDisposition(long id, String disposition);
 
     @Query("UPDATE attachment" +
             " SET cid = :cid" +
-            " WHERE id = :id")
+            " WHERE id = :id" +
+            " AND NOT (cid IS :cid)")
     void setCid(long id, String cid);
+
+    @Query("UPDATE attachment" +
+            " SET available = 0" +
+            " WHERE NOT (available IS 0)" +
+            " AND EXISTS" +
+            "  (SELECT * FROM attachment AS a" +
+            "   JOIN message ON message.id = a.message" +
+            "   JOIN folder ON folder.id = message.folder" +
+            "   JOIN account ON account.id = message.account" +
+            "   WHERE a.id = attachment.id" +
+            "   AND a.available" +
+            "   AND message.ui_seen" +
+            "   AND NOT message.ui_flagged" +
+            "   AND encryption IS NULL" +
+            "   AND message.received < :now - (folder.sync_days + 1) * 24 * 3600 * 1000" +
+            "   AND account.pop = " + EntityAccount.TYPE_IMAP + ")")
+    int purge(long now);
 
     @Insert
     long insertAttachment(EntityAttachment attachment);
@@ -103,4 +139,9 @@ public interface DaoAttachment {
     @Query("DELETE FROM attachment" +
             " WHERE id = :id")
     int deleteAttachment(long id);
+
+    @Query("DELETE FROM attachment" +
+            " WHERE message = :message" +
+            " AND (encryption IS NULL OR encryption NOT IN (:keep))")
+    int deleteAttachments(long message, int[] keep);
 }

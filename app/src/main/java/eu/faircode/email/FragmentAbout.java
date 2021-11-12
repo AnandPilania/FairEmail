@@ -16,24 +16,33 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
+import android.content.Context;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Paint;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.widget.TextViewCompat;
+
+import java.text.DateFormat;
+import java.util.List;
 
 public class FragmentAbout extends FragmentBase {
     @Override
@@ -42,15 +51,66 @@ public class FragmentAbout extends FragmentBase {
         setSubtitle(R.string.menu_about);
         setHasOptionsMenu(true);
 
+        final Context context = getContext();
+
         View view = inflater.inflate(R.layout.fragment_about, container, false);
 
         TextView tvVersion = view.findViewById(R.id.tvVersion);
         TextView tvRelease = view.findViewById(R.id.tvRelease);
-        TextView tvLimitations = view.findViewById(R.id.tvLimitations);
+        TextView tvUpdated = view.findViewById(R.id.tvUpdated);
+        ImageButton ibUpdate = view.findViewById(R.id.ibUpdate);
+        TextView tvGplV3 = view.findViewById(R.id.tvGplV3);
+        LinearLayout llContributors = view.findViewById(R.id.llContributors);
 
-        tvVersion.setText(getString(R.string.title_version, BuildConfig.VERSION_NAME));
+        String version = BuildConfig.VERSION_NAME + BuildConfig.REVISION;
+        tvVersion.setText(getString(R.string.title_version, version));
         tvRelease.setText(BuildConfig.RELEASE_NAME);
-        tvLimitations.setPaintFlags(tvLimitations.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+
+        long last = 0;
+        try {
+            PackageManager pm = context.getPackageManager();
+            PackageInfo pi = pm.getPackageInfo(BuildConfig.APPLICATION_ID, 0);
+            last = pi.lastUpdateTime;
+        } catch (Throwable ex) {
+            Log.e(ex);
+        }
+
+        DateFormat DF = Helper.getDateTimeInstance(context, DateFormat.SHORT, DateFormat.SHORT);
+        tvUpdated.setText(getString(R.string.app_updated, last == 0 ? "-" : DF.format(last)));
+
+        ibUpdate.setVisibility(
+                Helper.hasValidFingerprint(context) || BuildConfig.DEBUG
+                        ? View.VISIBLE : View.GONE);
+        ibUpdate.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (BuildConfig.PLAY_STORE_RELEASE)
+                    Helper.view(v.getContext(), Helper.getIntentRate(v.getContext()));
+                else
+                    Helper.view(v.getContext(), Uri.parse(BuildConfig.CHANGELOG), false);
+            }
+        });
+
+        tvGplV3.setPaintFlags(tvGplV3.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvGplV3.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Helper.view(view.getContext(), Uri.parse(Helper.LICENSE_URI), true);
+            }
+        });
+
+        TypedValue style = new TypedValue();
+        context.getTheme().resolveAttribute(R.style.TextAppearance_AppCompat_Small, style, true);
+
+        List<Contributor> contributors = Contributor.loadContributors(context);
+        for (Contributor contributor : contributors) {
+            TextView tv = new TextView(context);
+            TextViewCompat.setTextAppearance(tv, style.data);
+            tv.setText(contributor.toString());
+            llContributors.addView(tv);
+        }
+
+        FragmentDialogTheme.setBackground(context, view, false);
 
         return view;
     }
@@ -62,28 +122,24 @@ public class FragmentAbout extends FragmentBase {
     }
 
     @Override
-    public void onPrepareOptionsMenu(Menu menu) {
-        PackageManager pm = getContext().getPackageManager();
-        menu.findItem(R.id.menu_changelog).setVisible(!TextUtils.isEmpty(BuildConfig.CHANGELOG));
-        super.onPrepareOptionsMenu(menu);
-    }
-
-    @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case R.id.menu_changelog:
-                onMenuChangelog();
-                return true;
-            case R.id.menu_attribution:
-                onMenuAttribution();
-                return true;
-            default:
-                return super.onOptionsItemSelected(item);
+        int itemId = item.getItemId();
+        if (itemId == R.id.menu_changelog) {
+            onMenuChangelog();
+            return true;
+        } else if (itemId == R.id.menu_attribution) {
+            onMenuAttribution();
+            return true;
         }
+        return super.onOptionsItemSelected(item);
     }
 
     private void onMenuChangelog() {
-        Helper.view(getContext(), Uri.parse(BuildConfig.CHANGELOG), false);
+        Bundle args = new Bundle();
+        args.putString("name", "CHANGELOG.md");
+        FragmentDialogMarkdown fragment = new FragmentDialogMarkdown();
+        fragment.setArguments(args);
+        fragment.show(getParentFragmentManager(), "changelog");
     }
 
     private void onMenuAttribution() {
@@ -91,6 +147,6 @@ public class FragmentAbout extends FragmentBase {
         args.putString("name", "ATTRIBUTION.md");
         FragmentDialogMarkdown fragment = new FragmentDialogMarkdown();
         fragment.setArguments(args);
-        fragment.show(getFragmentManager(), "privacy");
+        fragment.show(getParentFragmentManager(), "attribution");
     }
 }

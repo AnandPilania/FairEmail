@@ -16,11 +16,12 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.SharedPreferences;
 import android.graphics.Paint;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -40,11 +41,17 @@ public class FragmentEula extends FragmentBase {
 
         View view = inflater.inflate(R.layout.fragment_eula, container, false);
 
-        TextView tvLimitations = view.findViewById(R.id.tvLimitations);
+        TextView tvGplV3 = view.findViewById(R.id.tvGplV3);
+        tvGplV3.setPaintFlags(tvGplV3.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvGplV3.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Helper.view(view.getContext(), Uri.parse(Helper.LICENSE_URI), true);
+            }
+        });
+
         Button btnAgree = view.findViewById(R.id.btnOk);
         Button btnDisagree = view.findViewById(R.id.btnCancel);
-
-        tvLimitations.setPaintFlags(tvLimitations.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
 
         btnAgree.setOnClickListener(new View.OnClickListener() {
             @Override

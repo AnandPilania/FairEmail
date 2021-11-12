@@ -16,25 +16,12 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
-
-import java.util.Objects;
 
 public class TupleMessageWidget extends EntityMessage {
     public String accountName;
+    public Integer accountColor;
     public int unseen;
     public int unflagged;
-
-    @Override
-    public boolean equals(Object obj) {
-        if (obj instanceof TupleMessageEx) {
-            TupleMessageEx other = (TupleMessageEx) obj;
-            return (super.equals(obj) &&
-                    Objects.equals(this.accountName, other.accountName) &&
-                    this.unseen == other.unseen &&
-                    this.unflagged == other.unflagged);
-        }
-        return false;
-    }
 }

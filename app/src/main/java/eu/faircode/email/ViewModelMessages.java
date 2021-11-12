@@ -16,13 +16,14 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.util.Pair;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -44,26 +45,51 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class ViewModelMessages extends ViewModel {
     private AdapterMessage.ViewType last = AdapterMessage.ViewType.UNIFIED;
-    private Map<AdapterMessage.ViewType, Model> models = new HashMap<>();
+    private Map<AdapterMessage.ViewType, Model> models = new HashMap<AdapterMessage.ViewType, Model>() {
+        @Nullable
+        @Override
+        public Model put(AdapterMessage.ViewType key, Model value) {
+            Model existing = this.get(key);
+            if (existing != null && existing.boundary != null)
+                existing.boundary.destroy(existing.boundary.getState());
+            return super.put(key, value);
+        }
 
-    private ExecutorService executor = Executors.newCachedThreadPool(Helper.backgroundThreadFactory);
+        @Nullable
+        @Override
+        public Model remove(@Nullable Object key) {
+            Model existing = this.get(key);
+            if (existing != null && existing.boundary != null)
+                existing.boundary.destroy(existing.boundary.getState());
+            return super.remove(key);
+        }
+    };
 
-    private static final int LOCAL_PAGE_SIZE = 100;
+    // AndroidX IO = 4 threads
+    private ExecutorService executor = Helper.getBackgroundExecutor(4, "model");
+
+    private static final int LOCAL_PAGE_SIZE = 50;
+    private static final int THREAD_PAGE_SIZE = 100;
     private static final int REMOTE_PAGE_SIZE = 10;
-    private static final int LOW_MEM_MB = 32;
+    private static final int SEARCH_PAGE_SIZE = 10;
+    private static final int MAX_CACHED_ITEMS = LOCAL_PAGE_SIZE * 50;
 
     Model getModel(
             final Context context, final LifecycleOwner owner,
             final AdapterMessage.ViewType viewType,
             String type, long account, long folder,
             String thread, long id,
-            String query, boolean server) {
+            boolean threading,
+            boolean filter_archive,
+            BoundaryCallbackMessages.SearchCriteria criteria, boolean server) {
 
-        Args args = new Args(context, type, account, folder, thread, id, query, server);
+        Args args = new Args(context,
+                viewType, type, account, folder,
+                thread, id, threading,
+                filter_archive, criteria, server);
         Log.i("Get model=" + viewType + " " + args);
         dump();
 
@@ -77,23 +103,34 @@ public class ViewModelMessages extends ViewModel {
             DB db = DB.getInstance(context);
 
             BoundaryCallbackMessages boundary = null;
-            if (viewType == AdapterMessage.ViewType.FOLDER || viewType == AdapterMessage.ViewType.SEARCH)
+            if (viewType == AdapterMessage.ViewType.FOLDER)
                 boundary = new BoundaryCallbackMessages(context,
-                        args.folder, args.server || viewType == AdapterMessage.ViewType.FOLDER,
-                        args.query, REMOTE_PAGE_SIZE);
+                        args.account, args.folder, true, args.criteria, REMOTE_PAGE_SIZE);
+            else if (viewType == AdapterMessage.ViewType.SEARCH)
+                boundary = new BoundaryCallbackMessages(context,
+                        args.account, args.folder, args.server, args.criteria,
+                        args.server ? REMOTE_PAGE_SIZE : SEARCH_PAGE_SIZE);
 
             LivePagedListBuilder<Integer, TupleMessageEx> builder = null;
             switch (viewType) {
                 case UNIFIED:
+                    PagedList.Config configUnified = new PagedList.Config.Builder()
+                            .setPageSize(LOCAL_PAGE_SIZE)
+                            .setMaxSize(MAX_CACHED_ITEMS)
+                            .build();
                     builder = new LivePagedListBuilder<>(
                             db.message().pagedUnified(
                                     args.type,
                                     args.threading,
-                                    args.sort,
-                                    args.filter_seen, args.filter_unflagged, args.filter_snoozed,
+                                    args.sort, args.ascending,
+                                    args.filter_seen,
+                                    args.filter_unflagged,
+                                    args.filter_unknown,
+                                    args.filter_snoozed,
+                                    args.filter_language,
                                     false,
                                     args.debug),
-                            LOCAL_PAGE_SIZE);
+                            configUnified);
                     break;
 
                 case FOLDER:
@@ -101,12 +138,17 @@ public class ViewModelMessages extends ViewModel {
                             .setInitialLoadSizeHint(LOCAL_PAGE_SIZE)
                             .setPageSize(LOCAL_PAGE_SIZE)
                             .setPrefetchDistance(REMOTE_PAGE_SIZE)
+                            .setMaxSize(MAX_CACHED_ITEMS)
                             .build();
                     builder = new LivePagedListBuilder<>(
                             db.message().pagedFolder(
                                     args.folder, args.threading,
-                                    args.sort,
-                                    args.filter_seen, args.filter_unflagged, args.filter_snoozed,
+                                    args.sort, args.ascending,
+                                    args.filter_seen,
+                                    args.filter_unflagged,
+                                    args.filter_unknown,
+                                    args.filter_snoozed,
+                                    args.filter_language,
                                     false,
                                     args.debug),
                             configFolder);
@@ -114,25 +156,33 @@ public class ViewModelMessages extends ViewModel {
                     break;
 
                 case THREAD:
+                    PagedList.Config configThread = new PagedList.Config.Builder()
+                            .setPageSize(THREAD_PAGE_SIZE)
+                            .build();
                     builder = new LivePagedListBuilder<>(
                             db.message().pagedThread(
                                     args.account, args.thread,
                                     args.threading ? null : args.id,
-                                    args.debug), LOCAL_PAGE_SIZE);
+                                    args.filter_archive && args.threading,
+                                    args.ascending,
+                                    args.debug),
+                            configThread);
                     break;
 
                 case SEARCH:
                     PagedList.Config configSearch = new PagedList.Config.Builder()
                             .setPageSize(LOCAL_PAGE_SIZE)
                             .setPrefetchDistance(REMOTE_PAGE_SIZE)
+                            .setMaxSize(MAX_CACHED_ITEMS)
                             .build();
                     if (args.folder < 0)
                         builder = new LivePagedListBuilder<>(
                                 db.message().pagedUnified(
                                         null,
                                         args.threading,
-                                        "time",
-                                        false, false, false,
+                                        "time", false,
+                                        false, false, false, false,
+                                        null,
                                         true,
                                         args.debug),
                                 configSearch);
@@ -140,8 +190,9 @@ public class ViewModelMessages extends ViewModel {
                         builder = new LivePagedListBuilder<>(
                                 db.message().pagedFolder(
                                         args.folder, args.threading,
-                                        "time",
-                                        false, false, false,
+                                        "time", false,
+                                        false, false, false, false,
+                                        null,
                                         true,
                                         args.debug),
                                 configSearch);
@@ -158,11 +209,7 @@ public class ViewModelMessages extends ViewModel {
         owner.getLifecycle().addObserver(new LifecycleObserver() {
             @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
             public void onDestroyed() {
-                int free_mb = Log.getFreeMemMb();
-                boolean lowmem = (free_mb < LOW_MEM_MB);
-
-                Log.i("Destroy model=" + viewType +
-                        " lowmem=" + lowmem + " free=" + free_mb + " MB");
+                Log.i("Destroy model=" + viewType);
 
                 Model model = models.get(viewType);
                 if (model != null) {
@@ -170,12 +217,14 @@ public class ViewModelMessages extends ViewModel {
                     model.list.removeObservers(owner);
                 }
 
-                if (viewType == AdapterMessage.ViewType.THREAD || lowmem) {
+                if (viewType == AdapterMessage.ViewType.THREAD) {
                     Log.i("Remove model=" + viewType);
                     models.remove(viewType);
                 }
 
                 dump();
+
+                owner.getLifecycle().removeObserver(this);
             }
         });
 
@@ -196,58 +245,175 @@ public class ViewModelMessages extends ViewModel {
         return model;
     }
 
+    void retry(AdapterMessage.ViewType viewType) {
+        Model model = models.get(viewType);
+        if (model != null && model.boundary != null)
+            model.boundary.retry();
+    }
+
     @Override
     protected void onCleared() {
         for (AdapterMessage.ViewType viewType : new ArrayList<>(models.keySet()))
             models.remove(viewType);
     }
 
-    void observePrevNext(LifecycleOwner owner, final long id, final IPrevNext intf) {
-        Log.i("Observe prev/next model=" + last);
+    void observePrevNext(Context context, LifecycleOwner owner, final long id, int lpos, final IPrevNext intf) {
+        Log.i("Observe prev/next model=" + last + " id=" + id + " lpos=" + lpos);
 
-        Model model = models.get(last);
+        final Model model = models.get(last);
         if (model == null) {
-            Log.w("Observe previous/next without model");
+            // When showing accounts or folders
+            intf.onPrevious(false, null);
+            intf.onNext(false, null);
+            intf.onFound(-1, 0);
             return;
         }
 
         Log.i("Observe previous/next id=" + id);
+        //model.list.getValue().loadAround(lpos);
         model.list.observe(owner, new Observer<PagedList<TupleMessageEx>>() {
+            private final Pair<Long, Integer>[] lastState = new Pair[3];
+
             @Override
             public void onChanged(PagedList<TupleMessageEx> messages) {
-                Log.i("Observe previous/next id=" + id + " messages=" + messages.size());
+                Log.i("Observe previous/next id=" + id +
+                        " lpos=" + lpos +
+                        " messages=" + messages.size());
 
+                Pair<Long, Integer>[] curState = new Pair[3];
                 for (int pos = 0; pos < messages.size(); pos++) {
                     TupleMessageEx item = messages.get(pos);
                     if (item != null && id == item.id) {
-                        boolean load = false;
+                        curState[1] = new Pair<>(id, pos);
+                        Log.i("Observe previous/next found id=" + id + " pos=" + pos);
 
                         if (pos - 1 >= 0) {
                             TupleMessageEx next = messages.get(pos - 1);
-                            if (next == null)
-                                load = true;
-                            intf.onNext(true, next == null ? null : next.id);
-                        } else
-                            intf.onNext(false, null);
+                            curState[2] = new Pair<>(next == null ? null : next.id, pos - 1);
+                        }
 
                         if (pos + 1 < messages.size()) {
                             TupleMessageEx prev = messages.get(pos + 1);
-                            if (prev == null)
-                                load = true;
-                            intf.onPrevious(true, prev == null ? null : prev.id);
-                        } else
-                            intf.onPrevious(false, null);
+                            curState[0] = new Pair<>(prev == null ? null : prev.id, pos + 1);
+                        }
 
-                        intf.onFound(pos, messages.size());
-
-                        if (load)
-                            messages.loadAround(pos);
-
-                        return;
+                        break;
                     }
                 }
 
-                Log.w("Observe previous/next gone id=" + id);
+                if (curState[1] == null) // first changed
+                    curState[1] = new Pair<>(id, -1);
+
+                if (Objects.equals(lastState[0], curState[0]) &&
+                        Objects.equals(lastState[1], curState[1]) &&
+                        Objects.equals(lastState[2], curState[2])) {
+                    Log.i("Observe previous/next unchanged");
+                    return;
+                }
+
+                Log.i("Observe previous/next" +
+                        " prev=" + (curState[0] == null ? null : curState[0].first + "/" + curState[0].second) +
+                        " base=" + (curState[1] == null ? null : curState[1].first + "/" + curState[1].second) +
+                        " next=" + (curState[2] == null ? null : curState[2].first + "/" + curState[2].second));
+
+                if (curState[1].second >= 0)
+                    intf.onFound(curState[1].second, messages.size());
+                if (!(lastState[0] != null && curState[0] == null))
+                    intf.onPrevious(curState[0] != null, curState[0] == null ? null : curState[0].first);
+                if (!(lastState[2] != null && curState[2] == null))
+                    intf.onNext(curState[2] != null, curState[2] == null ? null : curState[2].first);
+
+                lastState[0] = curState[0];
+                lastState[1] = curState[1];
+                lastState[2] = curState[2];
+
+                if (curState[1].second >= 0 &&
+                        (curState[0] == null || curState[0].first != null) &&
+                        (curState[2] == null || curState[2].first != null))
+                    return;
+
+                Bundle args = new Bundle();
+                args.putLong("id", id);
+                args.putInt("lpos", lpos);
+
+                new SimpleTask<Pair<Long, Long>>() {
+                    @Override
+                    protected Pair<Long, Long> onExecute(Context context, Bundle args) {
+                        long id = args.getLong("id");
+                        int lpos = args.getInt("lpos");
+
+                        PagedList<TupleMessageEx> plist = model.list.getValue();
+                        if (plist == null)
+                            return null;
+
+                        LimitOffsetDataSource<TupleMessageEx> ds = (LimitOffsetDataSource<TupleMessageEx>) plist.getDataSource();
+                        int count = ds.countItems();
+
+                        if (lpos >= 0) {
+                            int from = Math.max(0, lpos - 10);
+                            int load = Math.min(20, count - from);
+                            Log.i("Observe previous/next load lpos=" + lpos +
+                                    " range=" + from + "/#" + load);
+                            List<TupleMessageEx> messages = ds.loadRange(from, load);
+                            for (int j = 0; j < messages.size(); j++)
+                                if (messages.get(j).id == id)
+                                    return getPair(plist, ds, count, from + j);
+                        }
+
+                        for (int i = 0; i < count; i += 100) {
+                            Log.i("Observe previous/next load" +
+                                    " range=" + i + "/#" + count);
+                            List<TupleMessageEx> messages = ds.loadRange(i, Math.min(100, count - i));
+                            for (int j = 0; j < messages.size(); j++)
+                                if (messages.get(j).id == id)
+                                    return getPair(plist, ds, count, i + j);
+                        }
+
+                        return null;
+                    }
+
+                    @Override
+                    protected void onExecuted(Bundle args, Pair<Long, Long> data) {
+                        if (data == null) {
+                            Log.i("Observe previous/next fallback=none");
+                            return; // keep current
+                        }
+
+                        intf.onPrevious(data.first != null, data.first);
+                        intf.onNext(data.second != null, data.second);
+                        intf.onFound(-1, messages.size());
+                    }
+
+                    @Override
+                    protected void onException(Bundle args, Throwable ex) {
+                        // No nothing
+                    }
+
+                    private Pair<Long, Long> getPair(
+                            PagedList<TupleMessageEx> plist,
+                            LimitOffsetDataSource<TupleMessageEx> ds,
+                            int count, int pos) {
+                        if (pos < plist.size())
+                            plist.loadAround(pos);
+
+                        List<TupleMessageEx> lprev = null;
+                        if (pos - 1 >= 0)
+                            lprev = ds.loadRange(pos - 1, 1);
+
+                        List<TupleMessageEx> lnext = null;
+                        if (pos + 1 < count)
+                            lnext = ds.loadRange(pos + 1, 1);
+
+                        TupleMessageEx prev = (lprev != null && lprev.size() > 0 ? lprev.get(0) : null);
+                        TupleMessageEx next = (lnext != null && lnext.size() > 0 ? lnext.get(0) : null);
+
+                        Pair<Long, Long> result = new Pair<>(
+                                prev == null ? null : prev.id,
+                                next == null ? null : next.id);
+                        Log.i("Observe previous/next fallback=" + result);
+                        return result;
+                    }
+                }.execute(context, owner, args, "model:fallback");
             }
         });
     }
@@ -268,11 +434,14 @@ public class ViewModelMessages extends ViewModel {
                 PagedList<TupleMessageEx> plist = model.list.getValue();
                 if (plist == null)
                     return ids;
+
                 LimitOffsetDataSource<TupleMessageEx> ds = (LimitOffsetDataSource<TupleMessageEx>) plist.getDataSource();
                 int count = ds.countItems();
                 for (int i = 0; i < count; i += 100)
                     for (TupleMessageEx message : ds.loadRange(i, Math.min(100, count - i)))
-                        ids.add(message.id);
+                        if ((message.uid != null && !message.folderReadOnly) ||
+                                message.accountProtocol != EntityAccount.TYPE_IMAP)
+                            ids.add(message.id);
 
                 Log.i("Loaded messages #" + ids.size());
                 return ids;
@@ -296,35 +465,50 @@ public class ViewModelMessages extends ViewModel {
         private long folder;
         private String thread;
         private long id;
-        private String query;
+        private BoundaryCallbackMessages.SearchCriteria criteria;
         private boolean server;
 
         private boolean threading;
         private String sort;
+        private boolean ascending;
         private boolean filter_seen;
         private boolean filter_unflagged;
+        private boolean filter_unknown;
         private boolean filter_snoozed;
+        private boolean filter_archive;
+        private String filter_language;
         private boolean debug;
 
         Args(Context context,
+             AdapterMessage.ViewType viewType,
              String type, long account, long folder,
-             String thread, long id,
-             String query, boolean server) {
+             String thread, long id, boolean threading,
+             boolean filter_archive,
+             BoundaryCallbackMessages.SearchCriteria criteria, boolean server) {
 
             this.type = type;
             this.account = account;
             this.folder = folder;
             this.thread = thread;
             this.id = id;
-            this.query = query;
+            this.threading = threading;
+            this.filter_archive = filter_archive;
+            this.criteria = criteria;
             this.server = server;
 
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-            this.threading = prefs.getBoolean("threading", true);
             this.sort = prefs.getString("sort", "time");
-            this.filter_seen = prefs.getBoolean("filter_seen", false);
-            this.filter_unflagged = prefs.getBoolean("filter_unflagged", false);
-            this.filter_snoozed = prefs.getBoolean("filter_snoozed", true);
+            this.ascending = prefs.getBoolean(
+                    viewType == AdapterMessage.ViewType.THREAD ? "ascending_thread" : "ascending_list", false);
+            this.filter_seen = prefs.getBoolean(FragmentMessages.getFilter("seen", type), false);
+            this.filter_unflagged = prefs.getBoolean(FragmentMessages.getFilter("unflagged", type), false);
+            this.filter_unknown = prefs.getBoolean(FragmentMessages.getFilter("unknown", type), false);
+            this.filter_snoozed = prefs.getBoolean(FragmentMessages.getFilter("snoozed", type), true);
+
+            boolean language_detection = prefs.getBoolean("language_detection", false);
+            String filter_language = prefs.getString("filter_language", null);
+            this.filter_language = (language_detection ? filter_language : null);
+
             this.debug = prefs.getBoolean("debug", false);
         }
 
@@ -337,14 +521,18 @@ public class ViewModelMessages extends ViewModel {
                         this.folder == other.folder &&
                         Objects.equals(this.thread, other.thread) &&
                         this.id == other.id &&
-                        Objects.equals(this.query, other.query) &&
+                        Objects.equals(this.criteria, other.criteria) &&
                         this.server == other.server &&
 
                         this.threading == other.threading &&
                         Objects.equals(this.sort, other.sort) &&
+                        this.ascending == other.ascending &&
                         this.filter_seen == other.filter_seen &&
                         this.filter_unflagged == other.filter_unflagged &&
+                        this.filter_unknown == other.filter_unknown &&
                         this.filter_snoozed == other.filter_snoozed &&
+                        this.filter_archive == other.filter_archive &&
+                        Objects.equals(this.filter_language, other.filter_language) &&
                         this.debug == other.debug);
             } else
                 return false;
@@ -355,10 +543,15 @@ public class ViewModelMessages extends ViewModel {
         public String toString() {
             return "folder=" + type + ":" + account + ":" + folder +
                     " thread=" + thread + ":" + id +
-                    " query=" + query + ":" + server + "" +
+                    " criteria=" + criteria + ":" + server + "" +
                     " threading=" + threading +
-                    " sort=" + sort +
-                    " filter seen=" + filter_seen + " unflagged=" + filter_unflagged + " snoozed=" + filter_snoozed +
+                    " sort=" + sort + ":" + ascending +
+                    " filter seen=" + filter_seen +
+                    " unflagged=" + filter_unflagged +
+                    " unknown=" + filter_unknown +
+                    " snoozed=" + filter_snoozed +
+                    " archive=" + filter_archive +
+                    " language=" + filter_language +
                     " debug=" + debug;
         }
     }
@@ -380,12 +573,16 @@ public class ViewModelMessages extends ViewModel {
 
         void setCallback(LifecycleOwner owner, BoundaryCallbackMessages.IBoundaryCallbackMessages callback) {
             if (boundary != null) {
-                boundary.setCallback(callback);
+                BoundaryCallbackMessages.State state = boundary.setCallback(callback);
+                PagedList<TupleMessageEx> plist = list.getValue();
+                if (plist != null && plist.size() > 0)
+                    plist.loadAround(0);
 
                 owner.getLifecycle().addObserver(new LifecycleObserver() {
                     @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
                     public void onDestroyed() {
-                        boundary.close();
+                        boundary.destroy(state);
+                        owner.getLifecycle().removeObserver(this);
                     }
                 });
             }

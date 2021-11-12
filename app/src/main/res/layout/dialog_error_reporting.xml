@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<eu.faircode.email.ScrollViewEx xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -10,17 +10,19 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <TextView
+        <eu.faircode.email.FixedTextView
             android:id="@+id/tvMessage"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:drawableStart="@drawable/twotone_bug_report_24"
+            android:drawablePadding="6dp"
             android:text="@string/title_ask_reporting"
             android:textAppearance="@style/TextAppearance.AppCompat.Medium"
             android:textColor="?android:attr/textColorPrimary"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
 
-        <TextView
+        <eu.faircode.email.FixedTextView
             android:id="@+id/tvExplanation"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -37,20 +39,20 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:minWidth="0dp"
-            android:minHeight="0dp"
+            android:drawableEnd="@drawable/twotone_info_24"
+            android:drawablePadding="6dp"
             android:text="@string/title_info"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/tvExplanation" />
 
-        <CheckBox
-            android:id="@+id/cbNotAgain"
-            android:layout_width="match_parent"
+        <ImageView
+            android:id="@+id/ivExternal"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/title_no_ask_again"
-            android:textAppearance="@style/TextAppearance.AppCompat.Small"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/btnInfo" />
+            android:layout_marginStart="6dp"
+            app:layout_constraintBottom_toBottomOf="@id/btnInfo"
+            app:layout_constraintStart_toEndOf="@id/btnInfo"
+            app:layout_constraintTop_toTopOf="@id/btnInfo"
+            app:srcCompat="@drawable/twotone_open_in_new_24" />
     </androidx.constraintlayout.widget.ConstraintLayout>
-</ScrollView>
+</eu.faircode.email.ScrollViewEx>

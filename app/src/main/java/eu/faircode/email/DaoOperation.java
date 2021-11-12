@@ -16,72 +16,83 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import androidx.lifecycle.LiveData;
 import androidx.room.Dao;
 import androidx.room.Insert;
 import androidx.room.Query;
+import androidx.room.Transaction;
 
 import java.util.List;
 
 @Dao
 public interface DaoOperation {
-    @Query("SELECT operation.*, account.name AS accountName, folder.name AS folderName" +
-            " ,((account.synchronize IS NULL OR account.synchronize)" +
-            " AND (NOT folder.account IS NULL OR identity.synchronize IS NULL OR identity.synchronize)) AS synchronize" +
+    String priority = "CASE" +
+            " WHEN operation.name = '" + EntityOperation.BODY + "' THEN -4" +
+            " WHEN operation.name = '" + EntityOperation.ATTACHMENT + "' THEN -3" +
+            " WHEN operation.name = '" + EntityOperation.HEADERS + "' THEN -2" +
+            " WHEN operation.name = '" + EntityOperation.RAW + "' THEN -2" +
+            " WHEN operation.name = '" + EntityOperation.SYNC + "' AND folder.account IS NULL THEN -1" + // Outbox
+            " WHEN operation.name = '" + EntityOperation.SYNC + "' AND folder.account IS NOT NULL THEN 1" +
+            // Other operations: add, delete, seen, answered, flag, keyword, label, subscribe, send
+            " WHEN operation.name = '" + EntityOperation.FETCH + "' THEN 2" +
+            " WHEN operation.name = '" + EntityOperation.EXISTS + "' THEN 3" +
+            " WHEN operation.name = '" + EntityOperation.COPY + "' THEN 4" +
+            " WHEN operation.name = '" + EntityOperation.MOVE + "' THEN 5" +
+            " WHEN operation.name = '" + EntityOperation.PURGE + "' THEN 6" +
+            " WHEN operation.name = '" + EntityOperation.DELETE + "' THEN 7" +
+            " WHEN operation.name = '" + EntityOperation.EXPUNGE + "' THEN 8" +
+            " ELSE 0" +
+            " END";
+
+    @Transaction
+    @Query("SELECT operation.*" +
+            ", " + priority + " AS priority" +
+            ", account.name AS accountName, folder.name AS folderName" +
+            ", (account.synchronize IS NULL OR account.synchronize) AS synchronize" +
             " FROM operation" +
             " JOIN folder ON folder.id = operation.folder" +
-            " LEFT JOIN message ON message.id = operation.message" +
-            " LEFT JOIN account ON account.id = operation.account OR account.id = folder.account" +
-            " LEFT JOIN identity ON identity.id = message.identity" +
-            " ORDER BY" +
-            "  CASE WHEN operation.name = '" + EntityOperation.SYNC + "' THEN" +
-            "    CASE WHEN folder.account IS NULL THEN -1 ELSE 1 END" + // outbox
-            "    ELSE 0" +
-            "  END" +
-            ", id")
+            " LEFT JOIN account ON account.id = operation.account" +
+            " ORDER BY " + priority + ", id")
     LiveData<List<TupleOperationEx>> liveOperations();
 
-    String GET_OPS_FOLDER = "SELECT operation.* FROM operation" +
+    @Transaction
+    @Query("SELECT operation.*" +
+            ", " + priority + " AS priority" +
+            ", account.name AS accountName, folder.name AS folderName" +
+            ", account.synchronize" +
+            " FROM operation" +
             " JOIN folder ON folder.id = operation.folder" +
-            " LEFT JOIN message ON message.id = operation.message" +
-            " LEFT JOIN account ON account.id = operation.account" +
-            " LEFT JOIN identity ON identity.id = message.identity" +
-            " WHERE CASE WHEN :folder IS NULL THEN folder.account IS NULL ELSE operation.folder = :folder END" +
-            " AND (account.synchronize IS NULL OR account.synchronize)" +
-            " AND (NOT folder.account IS NULL OR identity.synchronize IS NULL OR identity.synchronize)" +
-            " ORDER BY" +
-            "  CASE WHEN operation.name = '" + EntityOperation.SYNC + "' THEN" +
-            "    CASE WHEN folder.account IS NULL THEN -1 ELSE 1 END" + // outbox
-            "    ELSE 0" +
-            "  END" +
-            ", id";
+            " JOIN account ON account.id = operation.account" +
+            " WHERE operation.account = :account" +
+            " AND account.synchronize" +
+            " AND folder.account IS NOT NULL" + // not outbox
+            " ORDER BY " + priority + ", id")
+    LiveData<List<TupleOperationEx>> liveOperations(long account);
 
-    @Query(GET_OPS_FOLDER)
-    List<EntityOperation> getOperations(Long folder);
-
-    @Query(GET_OPS_FOLDER)
-    LiveData<List<EntityOperation>> liveOperations(Long folder);
+    @Transaction
+    @Query("SELECT operation.*" +
+            " FROM operation" +
+            " JOIN folder ON folder.id = operation.folder" +
+            " WHERE folder.account IS NULL" + // outbox
+            " ORDER BY id")
+    LiveData<List<EntityOperation>> liveSend();
 
     @Query("SELECT COUNT(operation.id) AS pending" +
             ", SUM(CASE WHEN operation.error IS NULL THEN 0 ELSE 1 END) AS errors" +
             " FROM operation" +
-            " JOIN folder ON folder.id = operation.folder" +
-            " LEFT JOIN message ON message.id = operation.message" +
             " LEFT JOIN account ON account.id = operation.account" +
-            " LEFT JOIN identity ON identity.id = message.identity" +
-            " WHERE (account.synchronize IS NULL OR account.synchronize)" +
-            " AND (NOT folder.account IS NULL OR identity.synchronize IS NULL OR identity.synchronize)")
+            " WHERE (account.synchronize IS NULL OR account.synchronize)")
     LiveData<TupleOperationStats> liveStats();
 
-    @Query("SELECT COUNT(operation.id) FROM operation" +
-            " JOIN message ON message.id = operation.message" +
-            " JOIN identity ON identity.id = message.identity" +
-            " WHERE operation.name = '" + EntityOperation.SEND + "'" +
-            " AND identity.synchronize")
-    LiveData<Integer> liveUnsent();
+    @Query("SELECT" +
+            " COUNT(operation.id) AS count" +
+            ", SUM(CASE WHEN operation.state = 'executing' THEN 1 ELSE 0 END) AS busy" +
+            " FROM operation" +
+            " WHERE operation.name = '" + EntityOperation.SEND + "'")
+    LiveData<TupleUnsent> liveUnsent();
 
     @Query("SELECT * FROM operation ORDER BY id")
     List<EntityOperation> getOperations();
@@ -89,8 +100,17 @@ public interface DaoOperation {
     @Query("SELECT * FROM operation WHERE name = :name")
     List<EntityOperation> getOperations(String name);
 
+    @Query("SELECT * FROM operation WHERE account = :account AND name = :name")
+    List<EntityOperation> getOperations(long account, String name);
+
+    @Query("SELECT * FROM operation WHERE folder = :folder AND name = :name")
+    List<EntityOperation> getOperationsByFolder(long folder, String name);
+
     @Query("SELECT * FROM operation WHERE id = :id")
     EntityOperation getOperation(long id);
+
+    @Query("SELECT * FROM operation WHERE message = :message AND name = :name")
+    EntityOperation getOperation(long message, String name);
 
     @Query("SELECT * FROM operation WHERE error IS NOT NULL")
     List<EntityOperation> getOperationsError();
@@ -111,10 +131,19 @@ public interface DaoOperation {
             " AND name = :name")
     int getOperationCount(long folder, long message, String name);
 
-    @Query("UPDATE operation SET state = :state WHERE id = :id")
+    @Query("UPDATE operation SET tries = :tries WHERE id = :id AND NOT (tries IS :tries)")
+    int setOperationTries(long id, int tries);
+
+    @Query("UPDATE operation SET state = :state WHERE id = :id AND NOT (state IS :state)")
     int setOperationState(long id, String state);
 
-    @Query("UPDATE operation SET error = :error WHERE id = :id")
+    @Query("UPDATE operation SET state = NULL" +
+            " WHERE account = :account" +
+            " AND state IS NOT NULL" +
+            " AND name <> '" + EntityOperation.SEND + "'")
+    int resetOperationStates(long account);
+
+    @Query("UPDATE operation SET error = :error WHERE id = :id AND NOT (error IS :error)")
     int setOperationError(long id, String error);
 
     @Insert
@@ -122,4 +151,7 @@ public interface DaoOperation {
 
     @Query("DELETE FROM operation WHERE id = :id")
     int deleteOperation(long id);
+
+    @Query("DELETE FROM operation WHERE folder = :folder AND name = :name")
+    int deleteOperation(long folder, String name);
 }

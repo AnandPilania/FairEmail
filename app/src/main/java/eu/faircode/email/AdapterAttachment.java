@@ -16,17 +16,14 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Bundle;
-import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -48,13 +45,13 @@ import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ListUpdateCallback;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.android.material.snackbar.Snackbar;
-
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+
+import javax.mail.Part;
 
 public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.ViewHolder> {
     private Fragment parentFragment;
@@ -65,12 +62,15 @@ public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.Vi
 
     private boolean readonly;
     private boolean debug;
+    private int dp12;
 
     private List<EntityAttachment> items = new ArrayList<>();
 
-    public class ViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener {
+    public class ViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener, View.OnLongClickListener {
         private View view;
         private ImageButton ibDelete;
+        private ImageView ivType;
+        private ImageView ivDisposition;
         private TextView tvName;
         private TextView tvSize;
         private ImageView ivStatus;
@@ -84,11 +84,13 @@ public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.Vi
 
             view = itemView.findViewById(R.id.clItem);
             ibDelete = itemView.findViewById(R.id.ibDelete);
+            ivType = itemView.findViewById(R.id.ivType);
             tvName = itemView.findViewById(R.id.tvName);
             tvSize = itemView.findViewById(R.id.tvSize);
             ivStatus = itemView.findViewById(R.id.ivStatus);
             ibSave = itemView.findViewById(R.id.ibSave);
             tvType = itemView.findViewById(R.id.tvType);
+            ivDisposition = itemView.findViewById(R.id.ivDisposition);
             tvError = itemView.findViewById(R.id.tvError);
             progressbar = itemView.findViewById(R.id.progressbar);
         }
@@ -97,36 +99,58 @@ public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.Vi
             view.setOnClickListener(this);
             ibDelete.setOnClickListener(this);
             ibSave.setOnClickListener(this);
+            view.setOnLongClickListener(this);
         }
 
         private void unwire() {
             view.setOnClickListener(null);
             ibDelete.setOnClickListener(null);
             ibSave.setOnClickListener(null);
+            view.setOnLongClickListener(null);
         }
 
         private void bindTo(EntityAttachment attachment) {
-            view.setAlpha(attachment.isInline() && attachment.isImage() ? Helper.LOW_LIGHT : 1.0f);
+            view.setAlpha(!attachment.isAttachment() ? Helper.LOW_LIGHT : 1.0f);
 
-            ibDelete.setVisibility(readonly ? View.GONE : attachment.isInline() ? View.INVISIBLE : View.VISIBLE);
+            ViewGroup.MarginLayoutParams lparam = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
+            lparam.setMarginStart(attachment.subsequence == null ? 0 : dp12);
+            view.setLayoutParams(lparam);
+
+            ibDelete.setVisibility(readonly ? View.GONE : View.VISIBLE);
+
+            int resid = 0;
+            String extension = Helper.guessExtension(attachment.getMimeType());
+            if (extension != null)
+                resid = context.getResources().getIdentifier("file_" + extension, "drawable", context.getPackageName());
+            if (resid == 0)
+                ivType.setImageDrawable(null);
+            else
+                ivType.setImageResource(resid);
+
+            ivDisposition.setImageLevel(Part.INLINE.equals(attachment.disposition) ? 1 : 0);
+            ivDisposition.setVisibility(
+                    Part.ATTACHMENT.equals(attachment.disposition) ||
+                            Part.INLINE.equals(attachment.disposition)
+                            ? View.VISIBLE : View.INVISIBLE);
+
             tvName.setText(attachment.name);
 
             if (attachment.size != null)
-                tvSize.setText(Helper.humanReadableByteCount(attachment.size, true));
+                tvSize.setText(Helper.humanReadableByteCount(attachment.size));
             tvSize.setVisibility(attachment.size == null ? View.GONE : View.VISIBLE);
 
             if (attachment.available) {
-                ivStatus.setImageResource(R.drawable.baseline_visibility_24);
+                ivStatus.setImageResource(R.drawable.twotone_visibility_24);
                 ivStatus.setVisibility(View.VISIBLE);
             } else {
                 if (attachment.progress == null) {
-                    ivStatus.setImageResource(R.drawable.baseline_cloud_download_24);
+                    ivStatus.setImageResource(R.drawable.twotone_cloud_download_24);
                     ivStatus.setVisibility(View.VISIBLE);
                 } else
                     ivStatus.setVisibility(View.GONE);
             }
 
-            ibSave.setVisibility(readonly && attachment.available ? View.VISIBLE : View.GONE);
+            ibSave.setVisibility(attachment.available ? View.VISIBLE : View.GONE);
 
             if (attachment.progress != null)
                 progressbar.setProgress(attachment.progress);
@@ -135,12 +159,10 @@ public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.Vi
 
             StringBuilder sb = new StringBuilder();
             sb.append(attachment.type);
-            if (attachment.disposition != null)
-                sb.append(' ').append(attachment.disposition);
             if (debug || BuildConfig.DEBUG) {
                 if (attachment.cid != null)
                     sb.append(' ').append(attachment.cid);
-                if (attachment.encryption != null)
+                if (attachment.isEncryption())
                     sb.append(' ').append(attachment.encryption);
             }
             tvType.setText(sb.toString());
@@ -154,7 +176,10 @@ public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.Vi
             int pos = getAdapterPosition();
             if (pos == RecyclerView.NO_POSITION)
                 return;
-            final EntityAttachment attachment = items.get(pos);
+
+            EntityAttachment attachment = items.get(pos);
+            if (attachment == null)
+                return;
 
             if (view.getId() == R.id.ibDelete)
                 onDelete(attachment);
@@ -164,9 +189,43 @@ public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.Vi
                 if (attachment.available)
                     onShare(attachment);
                 else {
-                    if (attachment.progress == null)
+                    if (attachment.progress == null && attachment.subsequence == null)
                         onDownload(attachment);
                 }
+            }
+        }
+
+        @Override
+        public boolean onLongClick(View view) {
+            int pos = getAdapterPosition();
+            if (pos == RecyclerView.NO_POSITION)
+                return false;
+
+            EntityAttachment attachment = items.get(pos);
+            if (attachment == null || !attachment.available)
+                return false;
+
+            try {
+                File file = attachment.getFile(context);
+                Uri uri = FileProvider.getUriForFile(context, BuildConfig.APPLICATION_ID, file);
+                // TODO: consider using getUriForFile(..., displayName)
+
+                Intent send = new Intent();
+                send.setAction(Intent.ACTION_SEND);
+                send.putExtra(Intent.EXTRA_STREAM, uri);
+                send.setType(attachment.getMimeType());
+                send.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                context.startActivity(Intent.createChooser(send, context.getString(R.string.title_select_app)));
+
+                return true;
+            } catch (Throwable ex) {
+                /*
+                    java.lang.IllegalArgumentException: Failed to resolve canonical path for ...
+                      at androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(SourceFile:730)
+                      at androidx.core.content.FileProvider.getUriForFile(SourceFile:418)
+                 */
+                Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
+                return false;
             }
         }
 
@@ -201,7 +260,7 @@ public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.Vi
 
                 @Override
                 protected void onException(Bundle args, Throwable ex) {
-                    Helper.unexpectedError(parentFragment.getFragmentManager(), ex);
+                    Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
                 }
             }.execute(context, owner, args, "attachment:delete");
         }
@@ -209,42 +268,15 @@ public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.Vi
         private void onSave(EntityAttachment attachment) {
             LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(context);
             lbm.sendBroadcast(
-                    new Intent(FragmentMessages.ACTION_STORE_ATTACHMENT)
+                    new Intent(FragmentBase.ACTION_STORE_ATTACHMENT)
                             .putExtra("id", attachment.id)
                             .putExtra("name", Helper.sanitizeFilename(attachment.name))
-                            .putExtra("type", attachment.type));
+                            .putExtra("type", attachment.getMimeType()));
         }
 
         private void onShare(EntityAttachment attachment) {
-            // https://developer.android.com/reference/android/support/v4/content/FileProvider
-            File file = attachment.getFile(context);
-            final Uri uri = FileProvider.getUriForFile(context, BuildConfig.APPLICATION_ID, file);
-            Log.i("uri=" + uri);
-
-            // Build intent
-            final Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(uri, attachment.type);
-            intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            if (!TextUtils.isEmpty(attachment.name))
-                intent.putExtra(Intent.EXTRA_TITLE, Helper.sanitizeFilename(attachment.name));
-            Log.i("Intent=" + intent + " type=" + attachment.type);
-
-            // Get targets
-            PackageManager pm = context.getPackageManager();
-            List<ResolveInfo> ris = pm.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
-            for (ResolveInfo ri : ris) {
-                Log.i("Target=" + ri);
-                context.grantUriPermission(ri.activityInfo.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            }
-
-            // Check if viewer available
-            if (ris.size() == 0)
-                Snackbar.make(
-                        (View) itemView.getParent(),
-                        context.getString(R.string.title_no_viewer, attachment.type),
-                        Snackbar.LENGTH_LONG).show();
-            else
-                context.startActivity(intent);
+            String title = (attachment.name == null ? attachment.cid : attachment.name);
+            Helper.share(context, attachment.getFile(context), attachment.getMimeType(), title);
         }
 
         private void onDownload(EntityAttachment attachment) {
@@ -267,7 +299,9 @@ public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.Vi
                         if (message == null || message.uid == null)
                             return null;
 
-                        db.attachment().setProgress(id, 0);
+                        EntityAttachment attachment = db.attachment().getAttachment(id);
+                        if (attachment == null || attachment.progress != null || attachment.available)
+                            return null;
 
                         EntityOperation.queue(context, message, EntityOperation.ATTACHMENT, id);
 
@@ -276,12 +310,14 @@ public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.Vi
                         db.endTransaction();
                     }
 
+                    ServiceSynchronize.eval(context, "attachment");
+
                     return null;
                 }
 
                 @Override
                 protected void onException(Bundle args, Throwable ex) {
-                    Helper.unexpectedError(parentFragment.getFragmentManager(), ex);
+                    Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
                 }
             }.execute(context, owner, args, "attachment:fetch");
         }
@@ -297,14 +333,16 @@ public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.Vi
 
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         this.debug = prefs.getBoolean("debug", false);
+        this.dp12 = Helper.dp2pixels(context, 12);
 
         setHasStableIds(true);
 
         owner.getLifecycle().addObserver(new LifecycleObserver() {
             @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
             public void onDestroyed() {
-                Log.i(AdapterAttachment.this + " parent destroyed");
+                Log.d(AdapterAttachment.this + " parent destroyed");
                 AdapterAttachment.this.parentFragment = null;
+                owner.getLifecycle().removeObserver(this);
             }
         });
     }
@@ -326,28 +364,28 @@ public class AdapterAttachment extends RecyclerView.Adapter<AdapterAttachment.Vi
         diff.dispatchUpdatesTo(new ListUpdateCallback() {
             @Override
             public void onInserted(int position, int count) {
-                Log.i("Inserted @" + position + " #" + count);
+                Log.d("Inserted @" + position + " #" + count);
             }
 
             @Override
             public void onRemoved(int position, int count) {
-                Log.i("Removed @" + position + " #" + count);
+                Log.d("Removed @" + position + " #" + count);
             }
 
             @Override
             public void onMoved(int fromPosition, int toPosition) {
-                Log.i("Moved " + fromPosition + ">" + toPosition);
+                Log.d("Moved " + fromPosition + ">" + toPosition);
             }
 
             @Override
             public void onChanged(int position, int count, Object payload) {
-                Log.i("Changed @" + position + " #" + count);
+                Log.d("Changed @" + position + " #" + count);
             }
         });
         diff.dispatchUpdatesTo(this);
     }
 
-    private class DiffCallback extends DiffUtil.Callback {
+    private static class DiffCallback extends DiffUtil.Callback {
         private List<EntityAttachment> prev = new ArrayList<>();
         private List<EntityAttachment> next = new ArrayList<>();
 

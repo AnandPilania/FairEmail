@@ -16,28 +16,55 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
+import android.content.res.Resources;
+import android.content.res.TypedArray;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.StateListDrawable;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.recyclerview.widget.FastScrollerEx;
 import androidx.recyclerview.widget.RecyclerView;
 
 public class FixedRecyclerView extends RecyclerView {
     public FixedRecyclerView(@NonNull Context context) {
         super(context);
+        initFastScrollerEx(context, null, R.attr.recyclerViewStyle);
     }
 
     public FixedRecyclerView(@NonNull Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
+        initFastScrollerEx(context, attrs, R.attr.recyclerViewStyle);
     }
 
     public FixedRecyclerView(@NonNull Context context, @Nullable AttributeSet attrs, int defStyle) {
         super(context, attrs, defStyle);
+        initFastScrollerEx(context, attrs, defStyle);
+    }
+
+    private void initFastScrollerEx(Context context, AttributeSet attrs, int defStyleAttr) {
+        TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.RecyclerView,
+                defStyleAttr, 0);
+        StateListDrawable verticalThumbDrawable = (StateListDrawable) a
+                .getDrawable(R.styleable.RecyclerView_fastScrollVerticalThumbDrawable);
+        Drawable verticalTrackDrawable = a
+                .getDrawable(R.styleable.RecyclerView_fastScrollVerticalTrackDrawable);
+        StateListDrawable horizontalThumbDrawable = (StateListDrawable) a
+                .getDrawable(R.styleable.RecyclerView_fastScrollHorizontalThumbDrawable);
+        Drawable horizontalTrackDrawable = a
+                .getDrawable(R.styleable.RecyclerView_fastScrollHorizontalTrackDrawable);
+        Resources resources = getContext().getResources();
+        new FastScrollerEx(this, verticalThumbDrawable, verticalTrackDrawable,
+                horizontalThumbDrawable, horizontalTrackDrawable,
+                resources.getDimensionPixelSize(R.dimen.fastscroll_default_thickness),
+                resources.getDimensionPixelSize(R.dimen.fastscroll_minimum_range),
+                resources.getDimensionPixelOffset(R.dimen.fastscroll_margin));
     }
 
     @Override
@@ -60,7 +87,7 @@ public class FixedRecyclerView extends RecyclerView {
                 at androidx.recyclerview.widget.RecyclerView.dispatchOnItemTouch(SourceFile:2947)
                 at androidx.recyclerview.widget.RecyclerView.onTouchEvent(SourceFile:3090)
              */
-            Log.i(ex);
+            Log.w(ex);
             return false;
         } catch (NullPointerException ex) {
             /*
@@ -78,7 +105,19 @@ public class FixedRecyclerView extends RecyclerView {
             return false;
         } catch (IllegalStateException ex) {
             // Range start point not set
-            Log.i(ex);
+            Log.w(ex);
+            return false;
+        } catch (IndexOutOfBoundsException ex) {
+            /*
+                java.lang.ArrayIndexOutOfBoundsException: length=5; index=7
+                        at java.util.Arrays$ArrayList.get(Arrays.java:3766)
+                        at androidx.recyclerview.selection.ToolHandlerRegistry.get(SourceFile:69)
+                        at androidx.recyclerview.selection.EventRouter.onInterceptTouchEvent(SourceFile:57)
+                        at androidx.recyclerview.widget.RecyclerView.findInterceptingOnItemTouchListener(SourceFile:3151)
+                        at androidx.recyclerview.widget.RecyclerView.dispatchToOnItemTouchListeners(SourceFile:3122)
+                        at androidx.recyclerview.widget.RecyclerView.onTouchEvent(SourceFile:3283)
+             */
+            Log.w(ex);
             return false;
         }
     }
@@ -87,10 +126,74 @@ public class FixedRecyclerView extends RecyclerView {
     public boolean onInterceptTouchEvent(MotionEvent e) {
         try {
             return super.onInterceptTouchEvent(e);
-        } catch (IllegalStateException ex) {
-            // Range start point not set
+        } catch (Throwable ex) {
+            // IllegalStateException: Range start point not set
+            /*
+                java.lang.NullPointerException: Attempt to invoke virtual method 'int android.view.View.getTop()' on a null object reference
+                        at androidx.recyclerview.selection.GestureSelectionHelper$RecyclerViewDelegate.getLastGlidedItemPosition(SourceFile:276)
+                        at androidx.recyclerview.selection.GestureSelectionHelper.handleMoveEvent(SourceFile:191)
+                        at androidx.recyclerview.selection.GestureSelectionHelper.onTouchEvent(SourceFile:141)
+                        at androidx.recyclerview.selection.GestureSelectionHelper.onInterceptTouchEvent(SourceFile:108)
+                        at androidx.recyclerview.selection.EventRouter.onInterceptTouchEvent(SourceFile:57)
+                        at androidx.recyclerview.widget.RecyclerView.findInterceptingOnItemTouchListener(SourceFile:3153)
+                        at androidx.recyclerview.widget.RecyclerView.onInterceptTouchEvent(SourceFile:3172)
+                        at eu.faircode.email.FixedRecyclerView.onInterceptTouchEvent(SourceFile:128)
+                        at android.view.ViewGroup.dispatchTouchEvent(ViewGroup.java:2609)
+                        at android.view.ViewGroup.dispatchTransformedTouchEvent(ViewGroup.java:3060)
+             */
             Log.w(ex);
             return false;
+        }
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        try {
+            super.onLayout(changed, l, t, r, b);
+        } catch (Throwable ex) {
+            Log.w(ex);
+            /*
+                java.lang.IllegalArgumentException: Comparison method violates its general contract!
+                        at java.util.TimSort.mergeHi(TimSort.java:864)
+                        at java.util.TimSort.mergeAt(TimSort.java:481)
+                        at java.util.TimSort.mergeForceCollapse(TimSort.java:422)
+                        at java.util.TimSort.sort(TimSort.java:219)
+                        at java.util.TimSort.sort(TimSort.java:169)
+                        at java.util.Arrays.sort(Arrays.java:2010)
+                        at java.util.Collections.sort(Collections.java:1883)
+                        at android.view.ViewGroup$ChildListForAccessibility.init(ViewGroup.java:7181)
+                        at android.view.ViewGroup$ChildListForAccessibility.obtain(ViewGroup.java:7138)
+                        at android.view.ViewGroup.dispatchPopulateAccessibilityEventInternal(ViewGroup.java:2734)
+                        at android.view.View.dispatchPopulateAccessibilityEvent(View.java:5617)
+                        at android.view.ViewGroup.dispatchPopulateAccessibilityEventInternal(ViewGroup.java:2740)
+                        at android.view.View.dispatchPopulateAccessibilityEvent(View.java:5617)
+                        at android.view.ViewGroup.dispatchPopulateAccessibilityEventInternal(ViewGroup.java:2740)
+                        at android.view.View$AccessibilityDelegate.dispatchPopulateAccessibilityEvent(View.java:21273)
+                        at android.view.View.dispatchPopulateAccessibilityEvent(View.java:5615)
+                        at android.view.View.sendAccessibilityEventUncheckedInternal(View.java:5582)
+                        at android.view.View$AccessibilityDelegate.sendAccessibilityEventUnchecked(View.java:21252)
+                        at android.view.View.sendAccessibilityEventUnchecked(View.java:5564)
+                        at android.view.View.sendAccessibilityEventInternal(View.java:5543)
+                        at android.view.View$AccessibilityDelegate.sendAccessibilityEvent(View.java:21210)
+                        at android.view.View.sendAccessibilityEvent(View.java:5510)
+                        at android.view.View.onFocusChanged(View.java:5449)
+                        at android.view.View.handleFocusGainInternal(View.java:5229)
+                        at android.view.ViewGroup.handleFocusGainInternal(ViewGroup.java:651)
+                        at android.view.View.requestFocusNoSearch(View.java:7950)
+                        at android.view.View.requestFocus(View.java:7929)
+                        at android.view.ViewGroup.requestFocus(ViewGroup.java:2612)
+                        at android.view.ViewGroup.onRequestFocusInDescendants(ViewGroup.java:2657)
+                        at android.view.ViewGroup.requestFocus(ViewGroup.java:2613)
+                        at android.view.ViewGroup.onRequestFocusInDescendants(ViewGroup.java:2657)
+                        at android.view.ViewGroup.requestFocus(ViewGroup.java:2613)
+                        at android.view.View.requestFocus(View.java:7896)
+                        at android.view.View.requestFocus(View.java:7875)
+                        at androidx.recyclerview.widget.RecyclerView.recoverFocusFromState(SourceFile:4074)
+                        at androidx.recyclerview.widget.RecyclerView.dispatchLayoutStep3(SourceFile:4313)
+                        at androidx.recyclerview.widget.RecyclerView.dispatchLayout(SourceFile:3937)
+                        at androidx.recyclerview.widget.RecyclerView.onLayout(SourceFile:4484)
+                        at android.view.View.layout(View.java:16076)
+             */
         }
     }
 }

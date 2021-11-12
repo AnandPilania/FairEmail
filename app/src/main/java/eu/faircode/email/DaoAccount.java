@@ -16,7 +16,7 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import androidx.lifecycle.LiveData;
@@ -37,42 +37,121 @@ public interface DaoAccount {
             " ORDER BY `order`, `primary` DESC, name COLLATE NOCASE")
     List<EntityAccount> getSynchronizingAccounts();
 
-    @Query("SELECT * FROM account WHERE tbd = 1")
-    List<EntityAccount> getAccountsTbd();
+    @Query("SELECT * FROM account" +
+            " WHERE (:id IS NULL OR id = :id)" +
+            " AND synchronize" +
+            " AND NOT ondemand" +
+            " ORDER BY `order`, `primary` DESC, name COLLATE NOCASE")
+    List<EntityAccount> getPollAccounts(Long id);
 
     @Query("SELECT * FROM account WHERE synchronize")
     LiveData<List<EntityAccount>> liveSynchronizingAccounts();
 
     @Query("SELECT account.*" +
-            ", (SELECT COUNT(DISTINCT CASE WHEN message.msgid IS NULL THEN message.id ELSE message.msgid END)" +
+            ", (SELECT COUNT(DISTINCT" +
+            "   CASE WHEN NOT message.hash IS NULL THEN message.hash" +
+            "   WHEN NOT message.msgid IS NULL THEN message.msgid" +
+            "   ELSE message.id END)" +
             "    FROM message" +
             "    JOIN folder ON folder.id = message.folder" +
             "    WHERE message.account = account.id" +
             "    AND folder.type <> '" + EntityFolder.ARCHIVE + "'" +
             "    AND folder.type <> '" + EntityFolder.TRASH + "'" +
+            "    AND folder.type <> '" + EntityFolder.JUNK + "'" +
             "    AND folder.type <> '" + EntityFolder.DRAFTS + "'" +
             "    AND folder.type <> '" + EntityFolder.OUTBOX + "'" +
             "    AND NOT ui_seen" +
-            "    AND ui_hide = 0) AS unseen" +
+            "    AND NOT ui_hide) AS unseen" +
             ", (SELECT COUNT(identity.id)" +
             "    FROM identity" +
             "    WHERE identity.account = account.id" +
             "    AND identity.synchronize) AS identities" +
-            ", CASE WHEN drafts.id IS NULL THEN 0 ELSE 1 END AS drafts" +
+            ", drafts.id AS drafts, sent.id AS sent" +
             " FROM account" +
             " LEFT JOIN folder AS drafts ON drafts.account = account.id AND drafts.type = '" + EntityFolder.DRAFTS + "'" +
+            " LEFT JOIN folder AS sent ON sent.account = account.id AND sent.type = '" + EntityFolder.SENT + "'" +
             " WHERE :all OR account.synchronize" +
             " GROUP BY account.id" +
-            " ORDER BY CASE WHEN :all THEN 0 ELSE account.`order` END" +
-            ", CASE WHEN :all THEN 0 ELSE account.`primary` END DESC" +
+            " ORDER BY account.`order`" +
+            ", account.`primary` DESC" +
+            ", account.category COLLATE NOCASE" +
             ", account.name COLLATE NOCASE")
     LiveData<List<TupleAccountEx>> liveAccountsEx(boolean all);
+
+    @Query("SELECT account.*" +
+            ", NULL AS folderId, NULL AS folderSeparator" +
+            ", NULL AS folderType, -1 AS folderOrder" +
+            ", NULL AS folderName, NULL AS folderDisplay, NULL AS folderColor" +
+            ", 0 AS folderSync, NULL AS folderState, NULL AS folderSyncState" +
+            ", 0 AS executing" +
+            ", 0 AS messages" +
+            ", (SELECT COUNT(DISTINCT" +
+            "   CASE WHEN NOT message.hash IS NULL THEN message.hash" +
+            "   WHEN NOT message.msgid IS NULL THEN message.msgid" +
+            "   ELSE message.id END)" +
+            "    FROM message" +
+            "    JOIN folder ON folder.id = message.folder" +
+            "    WHERE message.account = account.id" +
+            "    AND folder.type <> '" + EntityFolder.ARCHIVE + "'" +
+            "    AND folder.type <> '" + EntityFolder.TRASH + "'" +
+            "    AND folder.type <> '" + EntityFolder.JUNK + "'" +
+            "    AND folder.type <> '" + EntityFolder.DRAFTS + "'" +
+            "    AND folder.type <> '" + EntityFolder.OUTBOX + "'" +
+            "    AND NOT ui_seen" +
+            "    AND NOT ui_hide) AS unseen" +
+            " FROM account" +
+            " WHERE account.synchronize" +
+
+            " UNION " +
+
+            " SELECT account.*" +
+            ", folder.id AS folderId, folder.separator AS folderSeparator" +
+            ", folder.type AS folderType, folder.`order` AS folderOrder" +
+            ", folder.name AS folderName, folder.display AS folderDisplay, folder.color AS folderColor" +
+            ", folder.synchronize AS folderSync, folder.state AS foldeState, folder.sync_state AS folderSyncState" +
+            ", (SELECT COUNT(operation.id) FROM operation" +
+            "   WHERE operation.folder = folder.id" +
+            "   AND state = 'executing') AS executing" +
+            ", (SELECT COUNT(message.id) FROM message" +
+            "   WHERE message.folder = folder.id" +
+            "   AND NOT ui_hide) AS messages" +
+            ", (SELECT COUNT(DISTINCT" +
+            "   CASE WHEN NOT message.hash IS NULL THEN message.hash" +
+            "   WHEN NOT message.msgid IS NULL THEN message.msgid" +
+            "   ELSE message.id END)" +
+            "    FROM message" +
+            "    WHERE message.folder = folder.id" +
+            "    AND NOT ui_seen" +
+            "    AND NOT ui_hide) AS unseen" +
+            " FROM account" +
+            " JOIN folder ON folder.account = account.id" +
+            " WHERE account.synchronize" +
+            " AND folder.navigation")
+    LiveData<List<TupleAccountFolder>> liveAccountFolder();
+
+    @Query("SELECT account.*" +
+            ", SUM(folder.synchronize) AS folders" +
+            ", (SELECT COUNT(id) FROM operation" +
+            "  WHERE operation.account = account.id AND operation.name <> '" + EntityOperation.SEND + "') AS operations" +
+            " FROM account" +
+            " LEFT JOIN folder ON folder.account = account.id" +
+            " GROUP BY account.id" +
+            " ORDER BY account.id")
+    LiveData<List<TupleAccountState>> liveAccountState();
 
     @Query("SELECT * FROM account WHERE id = :id")
     EntityAccount getAccount(long id);
 
+    @Query("SELECT * FROM account WHERE uuid = :uuid")
+    EntityAccount getAccountByUUID(String uuid);
+
     @Query("SELECT * FROM account WHERE name = :name")
     EntityAccount getAccount(String name);
+
+    @Query("SELECT * FROM account" +
+            " WHERE user = :user" +
+            " AND auth_type = :auth_type")
+    List<EntityAccount> getAccounts(String user, int auth_type);
 
     @Query("SELECT * FROM account WHERE `primary`")
     EntityAccount getPrimaryAccount();
@@ -83,21 +162,17 @@ public interface DaoAccount {
     @Query("SELECT * FROM account WHERE id = :id")
     LiveData<EntityAccount> liveAccount(long id);
 
-    @Query("SELECT" +
-            " (SELECT COUNT(account.id) FROM account" +
-            "    WHERE synchronize" +
-            "    AND state = 'connected') AS accounts" +
-            ", (SELECT COUNT(operation.id) FROM operation" +
-            "    JOIN folder ON folder.id = operation.folder" +
-            "    JOIN account ON account.id = folder.account" + // not outbox
-            "    WHERE account.synchronize) AS operations")
-    LiveData<TupleAccountStats> liveStats();
+    @Query(TupleAccountView.query)
+    LiveData<List<TupleAccountView>> liveAccountView();
 
-    @Query("SELECT account.id, account.swipe_left, l.type AS left_type, account.swipe_right, r.type AS right_type" +
+    @Query("SELECT account.id" +
+            ", account.swipe_left, l.type AS left_type, l.name AS left_name, l.color AS left_color" +
+            ", account.swipe_right, r.type AS right_type, r.name AS right_name, r.color AS right_color" +
             " FROM account" +
-            " LEFT JOIN folder l ON l.id = account.swipe_left" +
-            " LEFT JOIN folder r ON r.id = account.swipe_right")
-    LiveData<List<TupleAccountSwipes>> liveAccountSwipes();
+            " LEFT JOIN folder_view l ON l.id = account.swipe_left" +
+            " LEFT JOIN folder_view r ON r.id = account.swipe_right" +
+            " WHERE :account IS NULL OR account.id = :account")
+    LiveData<List<TupleAccountSwipes>> liveAccountSwipes(Long account);
 
     @Insert
     long insertAccount(EntityAccount account);
@@ -105,43 +180,101 @@ public interface DaoAccount {
     @Update
     void updateAccount(EntityAccount account);
 
-    @Query("UPDATE account SET separator = :separator WHERE id = :id")
-    int setFolderSeparator(long id, Character separator);
-
-    @Query("UPDATE account SET synchronize = :synchronize WHERE id = :id")
+    @Query("UPDATE account SET synchronize = :synchronize WHERE id = :id AND NOT (synchronize IS :synchronize)")
     int setAccountSynchronize(long id, boolean synchronize);
 
-    @Query("UPDATE account SET state = :state WHERE id = :id")
+    @Query("UPDATE account SET ondemand = :ondemand WHERE id = :id AND NOT (ondemand IS :ondemand)")
+    int setAccountOnDemand(long id, boolean ondemand);
+
+    @Query("UPDATE account SET `primary` = :primary WHERE id = :id AND NOT (`primary` IS :primary)")
+    int setAccountPrimary(long id, boolean primary);
+
+    @Query("UPDATE account SET notify = :notify WHERE id = :id AND NOT (notify IS :notify)")
+    int setAccountNotify(long id, boolean notify);
+
+    @Query("UPDATE account SET thread = :thread WHERE id = :id AND NOT (thread IS :thread)")
+    int setAccountThread(long id, Long thread);
+
+    @Query("SELECT thread FROM account WHERE id = :id")
+    Long getAccountThread(long id);
+
+    @Query("UPDATE account SET state = :state WHERE id = :id AND NOT (state IS :state)")
     int setAccountState(long id, String state);
 
-    @Query("UPDATE account SET last_connected = :last_connected WHERE id = :id")
-    int setAccountConnected(long id, long last_connected);
+    @Query("UPDATE account SET name = :name WHERE id = :id AND NOT (name IS :name)")
+    int setAccountName(long id, String name);
 
-    @Query("UPDATE account SET password = :password WHERE id = :id")
+    @Query("UPDATE account SET password = :password WHERE id = :id AND NOT (password IS :password)")
     int setAccountPassword(long id, String password);
 
-    @Query("UPDATE account SET `order` = :order WHERE id = :id")
+    @Query("UPDATE account SET last_connected = :last_connected WHERE id = :id AND NOT (last_connected IS :last_connected)")
+    int setAccountConnected(long id, Long last_connected);
+
+    @Query("UPDATE account SET backoff_until = :backoff_until WHERE id = :id AND NOT (backoff_until IS :backoff_until)")
+    int setAccountBackoff(long id, Long backoff_until);
+
+    @Query("UPDATE account" +
+            " SET quota_usage = :used, quota_limit = :limit" +
+            " WHERE id = :id" +
+            " AND (NOT (quota_usage IS :used) OR NOT (quota_limit IS :limit))")
+    int setAccountQuota(long id, Long used, Long limit);
+
+    @Query("UPDATE account SET poll_interval = :value WHERE id = :id AND NOT (poll_interval IS :value)")
+    int setAccountKeepAliveInterval(long id, int value);
+
+    @Query("UPDATE account SET keep_alive_ok = :ok WHERE id = :id AND NOT (keep_alive_ok IS :ok)")
+    int setAccountKeepAliveOk(long id, boolean ok);
+
+    @Query("UPDATE account" +
+            " SET keep_alive_failed = :failed, keep_alive_succeeded = :succeeded" +
+            " WHERE id = :id" +
+            " AND (NOT (keep_alive_failed IS :failed) OR NOT (keep_alive_succeeded IS :succeeded))")
+    int setAccountKeepAliveValues(long id, int failed, int succeeded);
+
+    @Query("UPDATE account SET poll_exempted = :value WHERE id = :id AND NOT (poll_exempted IS :value)")
+    int setAccountPollExempted(long id, boolean value);
+
+    @Query("UPDATE account SET `order` = :order WHERE id = :id AND NOT (`order` IS :order)")
     int setAccountOrder(long id, Integer order);
 
-    @Query("UPDATE account SET warning = :warning WHERE id = :id")
+    @Query("UPDATE account SET partial_fetch = :partial_fetch WHERE id = :id AND NOT (partial_fetch IS :partial_fetch)")
+    int setAccountPartialFetch(long id, boolean partial_fetch);
+
+    @Query("UPDATE account SET max_size = :max_size WHERE id = :id AND NOT (max_size IS :max_size)")
+    int setAccountMaxSize(long id, Long max_size);
+
+    @Query("UPDATE account" +
+            " SET capabilities = :capabilities" +
+            ", capability_idle = :idle" +
+            ", capability_utf8 = :utf8" +
+            " WHERE id = :id" +
+            " AND NOT (capabilities IS :capabilities" +
+            "  AND capability_idle IS :idle" +
+            "  AND capability_utf8 IS :utf8)")
+    int setAccountCapabilities(long id, String capabilities, Boolean idle, Boolean utf8);
+
+    @Query("UPDATE account SET warning = :warning WHERE id = :id AND NOT (warning IS :warning)")
     int setAccountWarning(long id, String warning);
 
-    @Query("UPDATE account SET error = :error WHERE id = :id")
+    @Query("UPDATE account SET error = :error WHERE id = :id AND NOT (error IS :error)")
     int setAccountError(long id, String error);
 
-    @Query("UPDATE account SET poll_interval = :poll_interval WHERE id = :id")
-    int setAccountPollInterval(long id, int poll_interval);
+    @Query("UPDATE account" +
+            " SET swipe_left = :left, swipe_right = :right" +
+            " WHERE id = :id" +
+            " AND (NOT (swipe_left IS :left) OR NOT (swipe_right IS :right))")
+    int setAccountSwipes(long id, Long left, Long right);
 
-    @Query("UPDATE account SET `primary` = 0")
+    @Query("UPDATE account SET `primary` = 0 WHERE NOT (`primary` IS 0)")
     void resetPrimary();
 
-    @Query("UPDATE account SET tbd = 1 WHERE id = :id")
+    @Query("UPDATE account SET `created` = 0 WHERE id = :id")
+    void resetCreated(long id);
+
+    @Query("UPDATE account SET tbd = 1 WHERE id = :id AND NOT (tbd IS 1)")
     int setAccountTbd(long id);
 
-    @Query("UPDATE account SET last_connected = NULL")
-    int clearAccountConnected();
-
-    @Query("DELETE FROM account WHERE tbd = 1")
-    int deleteAccountsTbd();
+    @Query("DELETE FROM account WHERE id = :id")
+    int deleteAccount(long id);
 }
 

@@ -16,7 +16,7 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.annotation.TargetApi;
@@ -40,7 +40,9 @@ public class ServiceTileUnseen extends TileService {
     public void onCreate() {
         super.onCreate();
 
-        DB.getInstance(this).message().liveUnseenNotify().observe(owner, new Observer<List<TupleMessageEx>>() {
+        DB db = DB.getInstance(this);
+
+        db.message().liveUnseenNotify().observe(owner, new Observer<List<TupleMessageEx>>() {
             @Override
             public void onChanged(List<TupleMessageEx> messages) {
                 if (messages == null)
@@ -48,20 +50,24 @@ public class ServiceTileUnseen extends TileService {
 
                 int unseen = 0;
                 for (TupleMessageEx message : messages)
-                    if (!message.ui_seen && !message.ui_ignored && message.ui_hide == 0)
+                    if (!message.ui_seen && !message.ui_ignored && !message.ui_hide)
                         unseen++;
 
                 Log.i("Update tile unseen=" + unseen);
 
                 Tile tile = getQsTile();
-                if (tile != null) {
-                    tile.setState(unseen > 0 ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
-                    tile.setIcon(Icon.createWithResource(ServiceTileUnseen.this,
-                            unseen > 0 ? R.drawable.baseline_mail_24 : R.drawable.baseline_mail_outline_24));
-                    tile.setLabel(getResources().getQuantityString(
-                            R.plurals.title_tile_unseen, unseen, unseen));
-                    tile.updateTile();
-                }
+                if (tile != null)
+                    try {
+                        tile.setState(unseen > 0 ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
+                        tile.setIcon(Icon.createWithResource(ServiceTileUnseen.this,
+                                unseen > 0 ? R.drawable.twotone_mail_24 : R.drawable.twotone_mail_outline_24));
+                        tile.setLabel(getResources().getQuantityString(
+                                R.plurals.title_tile_unseen, unseen, unseen));
+                        tile.updateTile();
+                    } catch (Throwable ex) {
+                        Log.w(ex);
+                        // See ServiceTileSynchronize
+                    }
             }
         });
     }
@@ -92,11 +98,8 @@ public class ServiceTileUnseen extends TileService {
         owner.stop();
     }
 
+    @Override
     public void onClick() {
-        Log.i("Click tile unseen");
-
-        Intent clear = new Intent(this, ServiceUI.class);
-        clear.setAction("clear");
-        startService(clear);
+        ServiceUI.sync(getApplicationContext(), null);
     }
 }

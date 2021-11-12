@@ -16,52 +16,81 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
+import android.app.Dialog;
 import android.content.Context;
-import android.content.Intent;
+import android.content.DialogInterface;
+import android.graphics.Color;
 import android.os.Bundle;
 
-import androidx.fragment.app.Fragment;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
-import com.android.colorpicker.ColorPickerDialog;
+import com.flask.colorpicker.ColorPickerView;
+import com.flask.colorpicker.OnColorChangedListener;
+import com.flask.colorpicker.builder.ColorPickerClickListener;
+import com.flask.colorpicker.builder.ColorPickerDialogBuilder;
 
 import static android.app.Activity.RESULT_OK;
 
-public class FragmentDialogColor extends ColorPickerDialog {
-    private Bundle args;
-
-    public void initialize(int title, int color, Bundle args, Context context) {
-        this.args = args;
-        int[] colors = context.getResources().getIntArray(R.array.colorPicker);
-        super.initialize(title, colors, color, 4, colors.length);
-    }
+public class FragmentDialogColor extends FragmentDialogBase {
+    private int color;
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        if (savedInstanceState != null)
-            this.args = savedInstanceState.getBundle("fair:extra");
-    }
-
-    @Override
-    public void onSaveInstanceState(Bundle outState) {
-        outState.putBundle("fair:extra", args);
+    public void onSaveInstanceState(@NonNull Bundle outState) {
+        outState.putInt("fair:color", color);
         super.onSaveInstanceState(outState);
     }
 
+    @NonNull
     @Override
-    public void onColorSelected(int color) {
-        Fragment target = getTargetFragment();
-        if (target != null) {
-            args.putInt("color", color);
+    public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
+        Bundle args = getArguments();
+        color = (savedInstanceState == null
+                ? args.getInt("color")
+                : savedInstanceState.getInt("fair:color"));
+        String title = args.getString("title");
+        boolean reset = args.getBoolean("reset", false);
 
-            Intent data = new Intent();
-            data.putExtra("args", args);
-            target.onActivityResult(getTargetRequestCode(), RESULT_OK, data);
-        }
+        Context context = getContext();
+        int editTextColor = Helper.resolveColor(context, android.R.attr.editTextColor);
 
-        dismiss();
+        ColorPickerDialogBuilder builder = ColorPickerDialogBuilder
+                .with(context)
+                .setTitle(title)
+                .showColorEdit(true)
+                .setColorEditTextColor(editTextColor)
+                .wheelType(ColorPickerView.WHEEL_TYPE.FLOWER)
+                .density(6)
+                .lightnessSliderOnly()
+                .setOnColorChangedListener(new OnColorChangedListener() {
+                    @Override
+                    public void onColorChanged(int selectedColor) {
+                        color = selectedColor;
+                    }
+                })
+                .setPositiveButton(android.R.string.ok, new ColorPickerClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int selectedColor, Integer[] allColors) {
+                        getArguments().putInt("color", selectedColor);
+                        sendResult(RESULT_OK);
+                    }
+                });
+
+        if (color != Color.TRANSPARENT)
+            builder.initialColor(color);
+
+        if (reset)
+            builder.setNegativeButton(R.string.title_reset, new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int which) {
+                    getArguments().putInt("color", Color.TRANSPARENT);
+                    sendResult(RESULT_OK);
+                }
+            });
+
+        return builder.build();
     }
 }

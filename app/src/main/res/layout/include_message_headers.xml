@@ -14,7 +14,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvHeaders"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -26,10 +26,29 @@
         android:text="Headers"
         android:textAppearance="@style/TextAppearance.AppCompat.Small"
         android:textIsSelectable="true"
-        android:textSize="12sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/vSeparatorHeaders" />
+
+    <ImageButton
+        android:id="@+id/ibCopyHeaders"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:padding="6dp"
+        app:layout_constraintEnd_toStartOf="@+id/ibCloseHeaders"
+        app:layout_constraintTop_toBottomOf="@+id/tvHeaders"
+        app:srcCompat="@drawable/twotone_file_copy_24" />
+
+    <ImageButton
+        android:id="@+id/ibCloseHeaders"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:padding="6dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/tvHeaders"
+        app:srcCompat="@drawable/twotone_cancel_24" />
 
     <eu.faircode.email.ContentLoadingProgressBar
         android:id="@+id/pbHeaders"
@@ -42,10 +61,12 @@
         app:layout_constraintStart_toStartOf="@id/tvHeaders"
         app:layout_constraintTop_toTopOf="@id/tvHeaders" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvNoInternetHeaders"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:drawableStart="@drawable/twotone_warning_24"
+        android:drawablePadding="6dp"
         android:text="@string/title_no_internet"
         android:textAppearance="@style/TextAppearance.AppCompat.Small"
         app:layout_constraintBottom_toBottomOf="@id/tvHeaders"
@@ -57,5 +78,5 @@
         android:id="@+id/grpHeaders"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        app:constraint_referenced_ids="vSeparatorHeaders,tvHeaders" />
+        app:constraint_referenced_ids="vSeparatorHeaders,tvHeaders,ibCloseHeaders" />
 </androidx.constraintlayout.widget.ConstraintLayout>

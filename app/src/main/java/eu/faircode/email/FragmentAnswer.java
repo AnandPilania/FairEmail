@@ -16,38 +16,57 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
-import android.app.Dialog;
+import static android.app.Activity.RESULT_OK;
+
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.Html;
+import android.text.SpannableStringBuilder;
 import android.text.Spanned;
+import android.text.TextUtils;
+import android.text.style.ImageSpan;
+import android.text.style.SuggestionSpan;
+import android.util.TypedValue;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CheckBox;
 import android.widget.EditText;
-import android.widget.ImageButton;
-import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
 import androidx.constraintlayout.widget.Group;
+import androidx.preference.PreferenceManager;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
+import com.google.android.material.snackbar.Snackbar;
 
-import static android.app.Activity.RESULT_OK;
+import org.jsoup.nodes.Document;
 
 public class FragmentAnswer extends FragmentBase {
     private ViewGroup view;
     private EditText etName;
+    private EditText etGroup;
+    private CheckBox cbStandard;
+    private CheckBox cbReceipt;
+    private CheckBox cbFavorite;
     private CheckBox cbHide;
-    private EditText etText;
-    private ImageButton ibInfo;
+    private CheckBox cbExternal;
+    private EditTextCompose etText;
+    private BottomNavigationView style_bar;
     private BottomNavigationView bottom_navigation;
     private ContentLoadingProgressBar pbWait;
     private Group grpReady;
@@ -55,7 +74,9 @@ public class FragmentAnswer extends FragmentBase {
     private long id = -1;
     private long copy = -1;
 
-    private final static int REQUEST_DELETE = 1;
+    private static final int REQUEST_IMAGE = 1;
+    private static final int REQUEST_LINK = 2;
+    private final static int REQUEST_DELETE = 3;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -73,46 +94,81 @@ public class FragmentAnswer extends FragmentBase {
     @Override
     @Nullable
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+        final Context context = getContext();
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        boolean monospaced = prefs.getBoolean("monospaced", false);
+        String compose_font = prefs.getString("compose_font", monospaced ? "monospace" : "sans-serif");
+        boolean compact = prefs.getBoolean("compose_compact", false);
+        int zoom = prefs.getInt("compose_zoom", compact ? 0 : 1);
+        int message_zoom = prefs.getInt("message_zoom", 100);
+
         setSubtitle(R.string.title_answer_caption);
+        setHasOptionsMenu(true);
 
         view = (ViewGroup) inflater.inflate(R.layout.fragment_answer, container, false);
 
         // Get controls
         etName = view.findViewById(R.id.etName);
+        etGroup = view.findViewById(R.id.etGroup);
+        cbStandard = view.findViewById(R.id.cbStandard);
+        cbReceipt = view.findViewById(R.id.cbReceipt);
+        cbFavorite = view.findViewById(R.id.cbFavorite);
         cbHide = view.findViewById(R.id.cbHide);
+        cbExternal = view.findViewById(R.id.cbExternal);
         etText = view.findViewById(R.id.etText);
-        ibInfo = view.findViewById(R.id.ibInfo);
 
+        style_bar = view.findViewById(R.id.style_bar);
         bottom_navigation = view.findViewById(R.id.bottom_navigation);
 
         pbWait = view.findViewById(R.id.pbWait);
         grpReady = view.findViewById(R.id.grpReady);
 
-        ibInfo.setOnClickListener(new View.OnClickListener() {
+        etText.setTypeface(StyleHelper.getTypeface(compose_font, context));
+
+        float textSize = Helper.getTextSize(context, zoom);
+        if (textSize != 0)
+            etText.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSize * message_zoom / 100f);
+
+        etText.setSelectionListener(new EditTextCompose.ISelection() {
             @Override
-            public void onClick(View v) {
-                new FragmentInfo().show(getFragmentManager(), "rule:info");
+            public void onSelected(boolean selection) {
+                style_bar.setVisibility(selection ? View.VISIBLE : View.GONE);
+            }
+        });
+
+        style_bar.setOnNavigationItemSelectedListener(new BottomNavigationView.OnNavigationItemSelectedListener() {
+            @Override
+            public boolean onNavigationItemSelected(@NonNull MenuItem item) {
+                return onActionStyle(item.getItemId());
             }
         });
 
         bottom_navigation.setOnNavigationItemSelectedListener(new BottomNavigationView.OnNavigationItemSelectedListener() {
             @Override
             public boolean onNavigationItemSelected(@NonNull MenuItem menuItem) {
-                switch (menuItem.getItemId()) {
-                    case R.id.action_delete:
-                        onActionDelete();
-                        return true;
-                    case R.id.action_save:
-                        onActionSave();
-                        return true;
-                    default:
-                        return false;
+                int itemId = menuItem.getItemId();
+                if (itemId == R.id.action_insert_image) {
+                    onInsertImage();
+                    return true;
+                } else if (itemId == R.id.action_delete) {
+                    onActionDelete();
+                    return true;
+                } else if (itemId == R.id.action_save) {
+                    onActionSave();
+                    return true;
                 }
+                return false;
             }
         });
 
         // Initialize
+        FragmentDialogTheme.setBackground(context, view, true);
+
+        cbExternal.setVisibility(View.GONE);
         grpReady.setVisibility(View.GONE);
+        style_bar.setVisibility(View.GONE);
+        bottom_navigation.setVisibility(View.GONE);
+
         pbWait.setVisibility(View.VISIBLE);
 
         return view;
@@ -127,6 +183,16 @@ public class FragmentAnswer extends FragmentBase {
 
         new SimpleTask<EntityAnswer>() {
             @Override
+            protected void onPreExecute(Bundle args) {
+                pbWait.setVisibility(View.VISIBLE);
+            }
+
+            @Override
+            protected void onPostExecute(Bundle args) {
+                pbWait.setVisibility(View.GONE);
+            }
+
+            @Override
             protected EntityAnswer onExecute(Context context, Bundle args) {
                 long id = args.getLong("id");
                 return DB.getInstance(context).answer().getAnswer(id);
@@ -134,38 +200,149 @@ public class FragmentAnswer extends FragmentBase {
 
             @Override
             protected void onExecuted(Bundle args, EntityAnswer answer) {
-                etName.setText(answer == null ? null : answer.name);
-                cbHide.setChecked(answer == null ? false : answer.hide);
-                etText.setText(answer == null ? null : HtmlHelper.fromHtml(answer.text));
+                final Context context = getContext();
+
+                if (copy > 0 && answer != null) {
+                    answer.applied = 0;
+                    answer.last_applied = null;
+                }
+
+                if (savedInstanceState == null) {
+                    Bundle a = getArguments();
+                    if (a == null)
+                        a = new Bundle();
+
+                    etName.setText(answer == null ? a.getString("subject") : answer.name);
+                    etGroup.setText(answer == null ? null : answer.group);
+                    cbStandard.setChecked(answer == null ? false : answer.standard);
+                    cbReceipt.setChecked(answer == null ? false : answer.receipt);
+                    cbFavorite.setChecked(answer == null ? false : answer.favorite);
+                    cbHide.setChecked(answer == null ? false : answer.hide);
+                    cbExternal.setChecked(answer == null ? false : answer.external);
+
+                    String html = (answer == null ? a.getString("html") : answer.text);
+                    if (html == null)
+                        etText.setText(null);
+                    else
+                        etText.setText(HtmlHelper.fromHtml(html, new Html.ImageGetter() {
+                            @Override
+                            public Drawable getDrawable(String source) {
+                                if (source != null && source.startsWith("cid:"))
+                                    source = null;
+                                return ImageHelper.decodeImage(context, -1, source, true, 0, 1.0f, etText);
+                            }
+                        }, null, context));
+                }
+
                 bottom_navigation.findViewById(R.id.action_delete).setVisibility(answer == null ? View.GONE : View.VISIBLE);
 
-                pbWait.setVisibility(View.GONE);
+                if (ActivityAnswer.canAnswer(context))
+                    cbExternal.setVisibility(View.VISIBLE);
                 grpReady.setVisibility(View.VISIBLE);
+                bottom_navigation.setVisibility(View.VISIBLE);
             }
 
             @Override
             protected void onException(Bundle args, Throwable ex) {
-                Helper.unexpectedError(getFragmentManager(), ex);
+                Log.unexpectedError(getParentFragmentManager(), ex);
             }
         }.execute(this, args, "answer:get");
+    }
+
+    @Override
+    public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
+        inflater.inflate(R.menu.menu_answer, menu);
+        super.onCreateOptionsMenu(menu, inflater);
+    }
+
+    @Override
+    public void onPrepareOptionsMenu(@NonNull Menu menu) {
+        menu.findItem(R.id.menu_placeholder_firstname).setVisible(BuildConfig.DEBUG);
+        menu.findItem(R.id.menu_placeholder_lastname).setVisible(BuildConfig.DEBUG);
+        super.onPrepareOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        int itemId = item.getItemId();
+        if (itemId == R.id.menu_placeholder_name) {
+            onMenuPlaceholder("$name$");
+            return true;
+        } else if (itemId == R.id.menu_placeholder_email) {
+            onMenuPlaceholder("$email$");
+            return true;
+        } else if (itemId == R.id.menu_placeholder_firstname) {
+            onMenuPlaceholder("$firstname$");
+            return true;
+        } else if (itemId == R.id.menu_placeholder_lastname) {
+            onMenuPlaceholder("$lastname$");
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    private void onMenuPlaceholder(String name) {
+        int start = etText.getSelectionStart();
+        int end = etText.getSelectionEnd();
+        if (start > end) {
+            int tmp = start;
+            start = end;
+            end = tmp;
+        }
+
+        if (start >= 0 && start < end)
+            etText.getText().replace(start, end, name);
+        else {
+            if (start < 0) {
+                start = etText.length() - 1;
+                if (start < 0)
+                    start = 0;
+            }
+
+            etText.getText().insert(start, name);
+        }
+    }
+
+    private void onInsertImage() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        intent.setType("image/*");
+        Helper.openAdvanced(intent);
+        startActivityForResult(intent, REQUEST_IMAGE);
     }
 
     private void onActionDelete() {
         Bundle args = new Bundle();
         args.putString("question", getString(R.string.title_ask_delete_answer));
+        args.putBoolean("warning", true);
 
         FragmentDialogAsk fragment = new FragmentDialogAsk();
         fragment.setArguments(args);
         fragment.setTargetFragment(FragmentAnswer.this, REQUEST_DELETE);
-        fragment.show(getFragmentManager(), "answer:delete");
+        fragment.show(getParentFragmentManager(), "answer:delete");
     }
 
     private void onActionSave() {
+        etText.clearComposingText();
+
+        // Prevent splitting placeholders
+        Editable edit = etText.getText();
+        SuggestionSpan[] suggestions = edit.getSpans(0, etText.length(), SuggestionSpan.class);
+        for (SuggestionSpan suggestion : suggestions)
+            edit.removeSpan(suggestion);
+
         Bundle args = new Bundle();
         args.putLong("id", id);
-        args.putString("name", etName.getText().toString());
+        args.putString("name", etName.getText().toString().trim());
+        args.putString("group", etGroup.getText().toString().trim());
+        args.putBoolean("standard", cbStandard.isChecked());
+        args.putBoolean("receipt", cbReceipt.isChecked());
+        args.putBoolean("favorite", cbFavorite.isChecked());
         args.putBoolean("hide", cbHide.isChecked());
-        args.putString("text", HtmlHelper.toHtml(etText.getText()));
+        args.putBoolean("external", cbExternal.isChecked());
+        args.putString("html", HtmlHelper.toHtml(etText.getText(), getContext()));
 
         new SimpleTask<Void>() {
             @Override
@@ -182,22 +359,53 @@ public class FragmentAnswer extends FragmentBase {
             protected Void onExecute(Context context, Bundle args) {
                 long id = args.getLong("id");
                 String name = args.getString("name");
+                String group = args.getString("group");
+                boolean standard = args.getBoolean("standard");
+                boolean receipt = args.getBoolean("receipt");
+                boolean favorite = args.getBoolean("favorite");
                 boolean hide = args.getBoolean("hide");
-                String text = args.getString("text");
+                boolean external = args.getBoolean("external");
+                String html = args.getString("html");
+
+                if (TextUtils.isEmpty(name))
+                    throw new IllegalArgumentException(context.getString(R.string.title_no_name));
+                if (TextUtils.isEmpty(group))
+                    group = null;
+
+                Document document = JsoupEx.parse(html);
 
                 DB db = DB.getInstance(context);
-                if (id < 0) {
-                    EntityAnswer answer = new EntityAnswer();
+                try {
+                    db.beginTransaction();
+
+                    if (standard)
+                        db.answer().resetStandard();
+                    if (receipt)
+                        db.answer().resetReceipt();
+
+                    EntityAnswer answer;
+                    if (id < 0)
+                        answer = new EntityAnswer();
+                    else
+                        answer = db.answer().getAnswer(id);
+
                     answer.name = name;
+                    answer.group = group;
+                    answer.standard = standard;
+                    answer.receipt = receipt;
+                    answer.favorite = favorite;
                     answer.hide = hide;
-                    answer.text = text;
-                    answer.id = db.answer().insertAnswer(answer);
-                } else {
-                    EntityAnswer answer = db.answer().getAnswer(id);
-                    answer.name = name;
-                    answer.hide = hide;
-                    answer.text = text;
-                    db.answer().updateAnswer(answer);
+                    answer.external = external;
+                    answer.text = document.body().html();
+
+                    if (id < 0)
+                        answer.id = db.answer().insertAnswer(answer);
+                    else
+                        db.answer().updateAnswer(answer);
+
+                    db.setTransactionSuccessful();
+                } finally {
+                    db.endTransaction();
                 }
 
                 return null;
@@ -210,7 +418,11 @@ public class FragmentAnswer extends FragmentBase {
 
             @Override
             protected void onException(Bundle args, Throwable ex) {
-                Helper.unexpectedError(getFragmentManager(), ex);
+                if (ex instanceof IllegalArgumentException)
+                    Snackbar.make(view, ex.getMessage(), Snackbar.LENGTH_LONG)
+                            .setGestureInsetBottomIgnored(true).show();
+                else
+                    Log.unexpectedError(getParentFragmentManager(), ex);
             }
         }.execute(this, args, "answer:save");
     }
@@ -221,6 +433,14 @@ public class FragmentAnswer extends FragmentBase {
 
         try {
             switch (requestCode) {
+                case REQUEST_IMAGE:
+                    if (resultCode == RESULT_OK && data != null)
+                        onImageSelected(data.getData());
+                    break;
+                case REQUEST_LINK:
+                    if (resultCode == RESULT_OK && data != null)
+                        onLinkSelected(data.getBundleExtra("args"));
+                    break;
                 case REQUEST_DELETE:
                     if (resultCode == RESULT_OK)
                         onDelete();
@@ -229,6 +449,42 @@ public class FragmentAnswer extends FragmentBase {
         } catch (Throwable ex) {
             Log.e(ex);
         }
+    }
+
+    private void onImageSelected(Uri uri) {
+        try {
+            getContext().getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+            int start = etText.getSelectionStart();
+            SpannableStringBuilder ssb = new SpannableStringBuilderEx(etText.getText());
+            ssb.insert(start, " \uFFFC"); // Object replacement character
+            String source = uri.toString();
+            Drawable d = ImageHelper.decodeImage(getContext(), -1, source, true, 0, 1.0f, etText);
+            ImageSpan is = new ImageSpan(d, source);
+            ssb.setSpan(is, start + 1, start + 2, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            etText.setText(ssb);
+            etText.setSelection(start + 2);
+        } catch (SecurityException ex) {
+            Snackbar sb = Snackbar.make(view, R.string.title_no_stream, Snackbar.LENGTH_INDEFINITE)
+                    .setGestureInsetBottomIgnored(true);
+            sb.setAction(R.string.title_info, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Helper.viewFAQ(v.getContext(), 49);
+                }
+            });
+            sb.show();
+        } catch (Throwable ex) {
+            Log.unexpectedError(getParentFragmentManager(), ex);
+        }
+    }
+
+    private void onLinkSelected(Bundle args) {
+        String link = args.getString("link");
+        int start = args.getInt("start");
+        int end = args.getInt("end");
+        etText.setSelection(start, end);
+        StyleHelper.apply(R.id.menu_link, getViewLifecycleOwner(), null, etText, link);
     }
 
     private void onDelete() {
@@ -260,31 +516,37 @@ public class FragmentAnswer extends FragmentBase {
 
             @Override
             protected void onException(Bundle args, Throwable ex) {
-                Helper.unexpectedError(getFragmentManager(), ex);
+                Log.unexpectedError(getParentFragmentManager(), ex);
             }
-        }.execute(FragmentAnswer.this, args, "answer:delete");
+        }.execute(this, args, "answer:delete");
     }
 
-    public static class FragmentInfo extends FragmentDialogEx {
-        @NonNull
-        @Override
-        public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
-            Spanned spanned = HtmlHelper.fromHtml("<p>" +
-                    getString(R.string.title_answer_template_name) +
-                    "<br>" +
-                    getString(R.string.title_answer_template_email) +
-                    "</p>");
+    private boolean onActionStyle(int action) {
+        Log.i("Style action=" + action);
 
-            View dview = LayoutInflater.from(getContext()).inflate(R.layout.dialog_ask_again, null);
-            TextView tvMessage = dview.findViewById(R.id.tvMessage);
-            CheckBox cbNotAgain = dview.findViewById(R.id.cbNotAgain);
+        if (action == R.id.menu_link) {
+            Uri uri = null;
 
-            tvMessage.setText(spanned);
-            cbNotAgain.setVisibility(View.GONE);
+            ClipboardManager cbm = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cbm != null && cbm.hasPrimaryClip()) {
+                String link = cbm.getPrimaryClip().getItemAt(0).coerceToText(getContext()).toString();
+                uri = Uri.parse(link);
+                if (uri.getScheme() == null)
+                    uri = null;
+            }
 
-            return new AlertDialog.Builder(getContext())
-                    .setView(dview)
-                    .create();
-        }
+            Bundle args = new Bundle();
+            args.putParcelable("uri", uri);
+            args.putInt("start", etText.getSelectionStart());
+            args.putInt("end", etText.getSelectionEnd());
+
+            FragmentDialogInsertLink fragment = new FragmentDialogInsertLink();
+            fragment.setArguments(args);
+            fragment.setTargetFragment(this, REQUEST_LINK);
+            fragment.show(getParentFragmentManager(), "answer:link");
+
+            return true;
+        } else
+            return StyleHelper.apply(action, getViewLifecycleOwner(), view.findViewById(action), etText);
     }
 }

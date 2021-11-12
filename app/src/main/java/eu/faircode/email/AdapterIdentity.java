@@ -16,13 +16,19 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.os.Bundle;
+import android.text.SpannableString;
+import android.text.TextUtils;
+import android.text.style.RelativeSizeSpan;
+import android.text.style.StyleSpan;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -32,6 +38,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.Lifecycle;
@@ -51,6 +58,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
+import static eu.faircode.email.ServiceAuthenticator.AUTH_TYPE_PASSWORD;
+
 public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHolder> {
     private Fragment parentFragment;
     private Context context;
@@ -65,14 +74,18 @@ public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHo
         private View view;
         private View vwColor;
         private ImageView ivSync;
+        private ImageView ivOAuth;
         private ImageView ivPrimary;
+        private ImageView ivGroup;
         private TextView tvName;
         private TextView tvUser;
         private TextView tvHost;
         private ImageView ivState;
         private TextView tvAccount;
+        private TextView tvSignKeyId;
         private TextView tvLast;
-        private TextView tvAuthorize;
+        private TextView tvMaxSize;
+        private TextView tvDrafts;
         private TextView tvError;
 
         private TwoStateOwner powner = new TwoStateOwner(owner, "IdentityPopup");
@@ -83,14 +96,18 @@ public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHo
             view = itemView.findViewById(R.id.clItem);
             vwColor = itemView.findViewById(R.id.vwColor);
             ivSync = itemView.findViewById(R.id.ivSync);
+            ivOAuth = itemView.findViewById(R.id.ivOAuth);
             ivPrimary = itemView.findViewById(R.id.ivPrimary);
+            ivGroup = itemView.findViewById(R.id.ivGroup);
             tvName = itemView.findViewById(R.id.tvName);
             tvUser = itemView.findViewById(R.id.tvUser);
             tvHost = itemView.findViewById(R.id.tvHost);
             ivState = itemView.findViewById(R.id.ivState);
             tvAccount = itemView.findViewById(R.id.tvAccount);
+            tvSignKeyId = itemView.findViewById(R.id.tvSignKeyId);
             tvLast = itemView.findViewById(R.id.tvLast);
-            tvAuthorize = itemView.findViewById(R.id.tvAuthorize);
+            tvMaxSize = itemView.findViewById(R.id.tvMaxSize);
+            tvDrafts = itemView.findViewById(R.id.tvDrafts);
             tvError = itemView.findViewById(R.id.tvError);
         }
 
@@ -105,30 +122,57 @@ public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHo
         }
 
         private void bindTo(TupleIdentityEx identity) {
-            view.setActivated(identity.tbd != null);
             vwColor.setBackgroundColor(identity.color == null ? Color.TRANSPARENT : identity.color);
             vwColor.setVisibility(ActivityBilling.isPro(context) ? View.VISIBLE : View.INVISIBLE);
 
-            ivSync.setImageResource(identity.synchronize ? R.drawable.baseline_sync_24 : R.drawable.baseline_sync_disabled_24);
+            ivSync.setImageResource(identity.synchronize ? R.drawable.twotone_sync_24 : R.drawable.twotone_sync_disabled_24);
+            ivSync.setContentDescription(context.getString(identity.synchronize ? R.string.title_legend_synchronize_on : R.string.title_legend_synchronize_off));
 
+            ivOAuth.setVisibility(identity.auth_type == AUTH_TYPE_PASSWORD ? View.GONE : View.VISIBLE);
             ivPrimary.setVisibility(identity.primary ? View.VISIBLE : View.GONE);
+            ivGroup.setVisibility(identity.self ? View.GONE : View.VISIBLE);
             tvName.setText(identity.getDisplayName());
             tvUser.setText(identity.email);
 
-            if ("connected".equals(identity.state))
-                ivState.setImageResource(R.drawable.baseline_cloud_24);
-            else if ("connecting".equals(identity.state))
-                ivState.setImageResource(R.drawable.baseline_cloud_queue_24);
-            else
+            if ("connected".equals(identity.state)) {
+                ivState.setImageResource(R.drawable.twotone_cloud_done_24);
+                ivState.setContentDescription(context.getString(R.string.title_legend_connected));
+            } else if ("connecting".equals(identity.state)) {
+                ivState.setImageResource(R.drawable.twotone_cloud_queue_24);
+                ivState.setContentDescription(context.getString(R.string.title_legend_connecting));
+            } else {
                 ivState.setImageDrawable(null);
+                ivState.setContentDescription(null);
+            }
             ivState.setVisibility(identity.synchronize ? View.VISIBLE : View.INVISIBLE);
 
             tvHost.setText(String.format("%s:%d", identity.host, identity.port));
             tvAccount.setText(identity.accountName);
-            tvLast.setText(context.getString(R.string.title_last_connected,
-                    identity.last_connected == null ? "-" : DTF.format(identity.last_connected)));
 
-            tvAuthorize.setVisibility(identity.auth_type == ConnectionHelper.AUTH_TYPE_PASSWORD ? View.GONE : View.VISIBLE);
+            StringBuilder sb = new StringBuilder();
+            if (identity.sign_key != null)
+                sb.append(Long.toHexString(identity.sign_key));
+            if (identity.sign_key_alias != null) {
+                if (sb.length() != 0)
+                    sb.append(", ");
+                sb.append(identity.sign_key_alias);
+            }
+            if (identity.encrypt == 1) {
+                if (sb.length() != 0)
+                    sb.append(", ");
+                sb.append("S/MIME");
+            }
+
+            tvSignKeyId.setText(context.getString(R.string.title_sign_key, sb.toString()));
+            tvSignKeyId.setVisibility(sb.length() > 0 ? View.VISIBLE : View.GONE);
+
+            tvLast.setText(context.getString(R.string.title_last_connected,
+                    (identity.last_connected == null ? "-" : DTF.format(identity.last_connected))));
+
+            tvMaxSize.setText(identity.max_size == null ? null : Helper.humanReadableByteCount(identity.max_size));
+            tvMaxSize.setVisibility(identity.max_size == null ? View.GONE : View.VISIBLE);
+
+            tvDrafts.setVisibility(identity.drafts == null ? View.VISIBLE : View.GONE);
 
             tvError.setText(identity.error);
             tvError.setVisibility(identity.error == null ? View.GONE : View.VISIBLE);
@@ -141,8 +185,6 @@ public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHo
                 return;
 
             TupleIdentityEx identity = items.get(pos);
-            if (identity.tbd != null)
-                return;
 
             LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(context);
             lbm.sendBroadcast(
@@ -157,33 +199,47 @@ public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHo
                 return false;
 
             final TupleIdentityEx identity = items.get(pos);
-            if (identity.tbd != null)
-                return false;
 
             PopupMenuLifecycle popupMenu = new PopupMenuLifecycle(context, powner, view);
 
-            popupMenu.getMenu().add(Menu.NONE, 0, 0, identity.email).setEnabled(false);
+            int order = 0;
+            SpannableString ss = new SpannableString(identity.email);
+            ss.setSpan(new StyleSpan(Typeface.ITALIC), 0, ss.length(), 0);
+            ss.setSpan(new RelativeSizeSpan(0.9f), 0, ss.length(), 0);
+            popupMenu.getMenu().add(Menu.NONE, 0, order++, ss).setEnabled(false);
 
-            popupMenu.getMenu().add(Menu.NONE, R.string.title_synchronize_enabled, 1, R.string.title_synchronize_enabled)
+            popupMenu.getMenu().add(Menu.NONE, R.string.title_enabled, order++, R.string.title_enabled)
                     .setCheckable(true).setChecked(identity.synchronize);
+            popupMenu.getMenu().add(Menu.NONE, R.string.title_primary, order++, R.string.title_primary)
+                    .setCheckable(true).setChecked(identity.primary);
 
-            popupMenu.getMenu().add(Menu.NONE, R.string.title_copy, 2, R.string.title_copy);
+            if (identity.sign_key != null || identity.sign_key_alias != null)
+                popupMenu.getMenu().add(Menu.NONE, R.string.title_reset_sign_key, order++, R.string.title_reset_sign_key);
+
+            popupMenu.getMenu().add(Menu.NONE, R.string.title_copy, order++, R.string.title_copy);
+            popupMenu.getMenu().add(Menu.NONE, R.string.title_delete, order++, R.string.title_delete);
 
             popupMenu.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
                 @Override
                 public boolean onMenuItemClick(MenuItem item) {
-                    switch (item.getItemId()) {
-                        case R.string.title_synchronize_enabled:
-                            onActionSync(!item.isChecked());
-                            return true;
-
-                        case R.string.title_copy:
-                            onActionCopy();
-                            return true;
-
-                        default:
-                            return false;
+                    int itemId = item.getItemId();
+                    if (itemId == R.string.title_enabled) {
+                        onActionSync(!item.isChecked());
+                        return true;
+                    } else if (itemId == R.string.title_primary) {
+                        onActionPrimary(!item.isChecked());
+                        return true;
+                    } else if (itemId == R.string.title_reset_sign_key) {
+                        onActionClearSignKey();
+                        return true;
+                    } else if (itemId == R.string.title_copy) {
+                        onActionCopy();
+                        return true;
+                    } else if (itemId == R.string.title_delete) {
+                        onActionDelete();
+                        return true;
                     }
+                    return false;
                 }
 
                 private void onActionSync(boolean sync) {
@@ -207,9 +263,78 @@ public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHo
 
                         @Override
                         protected void onException(Bundle args, Throwable ex) {
-                            Helper.unexpectedError(parentFragment.getFragmentManager(), ex);
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
                         }
-                    }.execute(context, owner, args, "identitty:enable");
+                    }.execute(context, owner, args, "identity:enable");
+                }
+
+                private void onActionPrimary(boolean primary) {
+                    Bundle args = new Bundle();
+                    args.putLong("id", identity.id);
+                    args.putLong("account", identity.account);
+                    args.putBoolean("primary", primary);
+
+                    new SimpleTask<Void>() {
+                        @Override
+                        protected Void onExecute(Context context, Bundle args) {
+                            long id = args.getLong("id");
+                            long account = args.getLong("account");
+                            boolean primary = args.getBoolean("primary");
+
+                            DB db = DB.getInstance(context);
+
+                            try {
+                                db.beginTransaction();
+
+                                if (primary)
+                                    db.identity().resetPrimary(account);
+
+                                db.identity().setIdentityPrimary(id, primary);
+
+                                db.setTransactionSuccessful();
+                            } finally {
+                                db.endTransaction();
+                            }
+
+                            return null;
+                        }
+
+                        @Override
+                        protected void onException(Bundle args, Throwable ex) {
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
+                        }
+                    }.execute(context, owner, args, "identity:primary");
+                }
+
+                private void onActionClearSignKey() {
+                    Bundle args = new Bundle();
+                    args.putLong("id", identity.id);
+
+                    new SimpleTask<Boolean>() {
+                        @Override
+                        protected Boolean onExecute(Context context, Bundle args) {
+                            long id = args.getLong("id");
+
+                            DB db = DB.getInstance(context);
+                            try {
+                                db.beginTransaction();
+
+                                db.identity().setIdentitySignKey(id, null);
+                                db.identity().setIdentitySignKeyAlias(id, null);
+
+                                db.setTransactionSuccessful();
+                            } finally {
+                                db.endTransaction();
+                            }
+
+                            return null;
+                        }
+
+                        @Override
+                        protected void onException(Bundle args, Throwable ex) {
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
+                        }
+                    }.execute(context, owner, args, "identitty:clear_sign_key");
                 }
 
                 private void onActionCopy() {
@@ -218,6 +343,50 @@ public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHo
                             new Intent(ActivitySetup.ACTION_EDIT_IDENTITY)
                                     .putExtra("id", identity.id)
                                     .putExtra("copy", true));
+                }
+
+                private void onActionDelete() {
+                    new AlertDialog.Builder(view.getContext())
+                            .setIcon(R.drawable.twotone_warning_24)
+                            .setTitle(identity.email)
+                            .setMessage(R.string.title_identity_delete)
+                            .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
+                                @Override
+                                public void onClick(DialogInterface dialog, int which) {
+                                    onDelete();
+                                }
+                            })
+                            .setNegativeButton(android.R.string.cancel, new DialogInterface.OnClickListener() {
+                                @Override
+                                public void onClick(DialogInterface dialog, int which) {
+                                    // Do nothing
+                                }
+                            })
+                            .show();
+                }
+
+                private void onDelete() {
+                    Bundle args = new Bundle();
+                    args.putLong("id", identity.id);
+
+                    new SimpleTask<Void>() {
+                        @Override
+                        protected Void onExecute(Context context, Bundle args) {
+                            long id = args.getLong("id");
+
+                            DB db = DB.getInstance(context);
+                            db.identity().deleteIdentity(id);
+
+                            Core.clearIdentities();
+
+                            return null;
+                        }
+
+                        @Override
+                        protected void onException(Bundle args, Throwable ex) {
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
+                        }
+                    }.execute(context, owner, args, "identity:delete");
                 }
             });
 
@@ -240,8 +409,9 @@ public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHo
         owner.getLifecycle().addObserver(new LifecycleObserver() {
             @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
             public void onDestroyed() {
-                Log.i(AdapterIdentity.this + " parent destroyed");
+                Log.d(AdapterIdentity.this + " parent destroyed");
                 AdapterIdentity.this.parentFragment = null;
+                owner.getLifecycle().removeObserver(this);
             }
         });
     }
@@ -255,6 +425,11 @@ public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHo
         Collections.sort(identities, new Comparator<TupleIdentityEx>() {
             @Override
             public int compare(TupleIdentityEx i1, TupleIdentityEx i2) {
+                int c = collator.compare(
+                        i1.accountCategory == null ? "" : i1.accountCategory,
+                        i2.accountCategory == null ? "" : i2.accountCategory);
+                if (c != 0)
+                    return c;
                 int n = collator.compare(i1.getDisplayName(), i2.getDisplayName());
                 if (n != 0)
                     return n;
@@ -272,28 +447,28 @@ public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHo
         diff.dispatchUpdatesTo(new ListUpdateCallback() {
             @Override
             public void onInserted(int position, int count) {
-                Log.i("Inserted @" + position + " #" + count);
+                Log.d("Inserted @" + position + " #" + count);
             }
 
             @Override
             public void onRemoved(int position, int count) {
-                Log.i("Removed @" + position + " #" + count);
+                Log.d("Removed @" + position + " #" + count);
             }
 
             @Override
             public void onMoved(int fromPosition, int toPosition) {
-                Log.i("Moved " + fromPosition + ">" + toPosition);
+                Log.d("Moved " + fromPosition + ">" + toPosition);
             }
 
             @Override
             public void onChanged(int position, int count, Object payload) {
-                Log.i("Changed @" + position + " #" + count);
+                Log.d("Changed @" + position + " #" + count);
             }
         });
         diff.dispatchUpdatesTo(this);
     }
 
-    private class DiffCallback extends DiffUtil.Callback {
+    private static class DiffCallback extends DiffUtil.Callback {
         private List<TupleIdentityEx> prev = new ArrayList<>();
         private List<TupleIdentityEx> next = new ArrayList<>();
 
@@ -332,6 +507,13 @@ public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHo
         return items.get(position).id;
     }
 
+    public TupleIdentityEx getItemAtPosition(int pos) {
+        if (pos >= 0 && pos < items.size())
+            return items.get(pos);
+        else
+            return null;
+    }
+
     @Override
     public int getItemCount() {
         return items.size();
@@ -345,16 +527,11 @@ public class AdapterIdentity extends RecyclerView.Adapter<AdapterIdentity.ViewHo
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        holder.unwire();
-
         TupleIdentityEx identity = items.get(position);
+        holder.powner.recreate(identity == null ? null : identity.id);
+
+        holder.unwire();
         holder.bindTo(identity);
-
         holder.wire();
-    }
-
-    @Override
-    public void onViewRecycled(@NonNull ViewHolder holder) {
-        holder.powner.recreate();
     }
 }

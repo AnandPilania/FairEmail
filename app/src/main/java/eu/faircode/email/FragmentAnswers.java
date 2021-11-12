@@ -16,19 +16,23 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.widget.SearchView;
 import androidx.constraintlayout.widget.Group;
-import androidx.core.content.ContextCompat;
 import androidx.fragment.app.FragmentTransaction;
 import androidx.lifecycle.Observer;
 import androidx.preference.PreferenceManager;
@@ -49,6 +53,7 @@ public class FragmentAnswers extends FragmentBase {
     private Group grpReady;
     private FloatingActionButton fab;
 
+    private String searching = null;
     private AdapterAnswer adapter;
 
     @Override
@@ -75,7 +80,7 @@ public class FragmentAnswers extends FragmentBase {
 
         // Wire controls
 
-        rvAnswer.setHasFixedSize(false);
+        rvAnswer.setHasFixedSize(true);
         LinearLayoutManager llm = new LinearLayoutManager(getContext());
         rvAnswer.setLayoutManager(llm);
 
@@ -91,17 +96,14 @@ public class FragmentAnswers extends FragmentBase {
         fab.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                FragmentTransaction fragmentTransaction = getFragmentManager().beginTransaction();
+                FragmentTransaction fragmentTransaction = getParentFragmentManager().beginTransaction();
                 fragmentTransaction.replace(R.id.content_frame, new FragmentAnswer()).addToBackStack("answer");
                 fragmentTransaction.commit();
             }
         });
 
         // Initialize
-
-        if (cards && !Helper.isDarkTheme(getContext()))
-            view.setBackgroundColor(ContextCompat.getColor(getContext(), R.color.lightColorBackground_cards));
-
+        FragmentDialogTheme.setBackground(getContext(), view, false);
         grpReady.setVisibility(View.GONE);
         pbWait.setVisibility(View.VISIBLE);
 
@@ -109,8 +111,18 @@ public class FragmentAnswers extends FragmentBase {
     }
 
     @Override
+    public void onSaveInstanceState(Bundle outState) {
+        outState.putString("fair:searching", searching);
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override
     public void onActivityCreated(@Nullable Bundle savedInstanceState) {
         super.onActivityCreated(savedInstanceState);
+
+        if (savedInstanceState != null)
+            searching = savedInstanceState.getString("fair:searching");
+        adapter.search(searching);
 
         DB db = DB.getInstance(getContext());
         db.answer().liveAnswers().observe(getViewLifecycleOwner(), new Observer<List<EntityAnswer>>() {
@@ -125,5 +137,39 @@ public class FragmentAnswers extends FragmentBase {
                 grpReady.setVisibility(View.VISIBLE);
             }
         });
+    }
+
+    @Override
+    public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
+        inflater.inflate(R.menu.menu_answers, menu);
+
+        MenuItem menuSearch = menu.findItem(R.id.menu_search);
+        SearchView searchView = (SearchView) menuSearch.getActionView();
+        searchView.setQueryHint(getString(R.string.title_rules_search_hint));
+
+        if (!TextUtils.isEmpty(searching)) {
+            menuSearch.expandActionView();
+            searchView.setQuery(searching, true);
+        }
+
+        searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+            @Override
+            public boolean onQueryTextChange(String newText) {
+                if (getView() != null) {
+                    searching = newText;
+                    adapter.search(newText);
+                }
+                return true;
+            }
+
+            @Override
+            public boolean onQueryTextSubmit(String query) {
+                searching = query;
+                adapter.search(query);
+                return true;
+            }
+        });
+
+        super.onCreateOptionsMenu(menu, inflater);
     }
 }

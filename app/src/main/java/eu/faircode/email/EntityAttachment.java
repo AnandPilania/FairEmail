@@ -16,11 +16,12 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
+import static androidx.room.ForeignKey.CASCADE;
+
 import android.content.Context;
-import android.os.Build;
 import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
@@ -31,14 +32,11 @@ import androidx.room.PrimaryKey;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 import javax.mail.Part;
-
-import static androidx.room.ForeignKey.CASCADE;
 
 @Entity(
         tableName = EntityAttachment.TABLE_NAME,
@@ -47,7 +45,7 @@ import static androidx.room.ForeignKey.CASCADE;
         },
         indices = {
                 @Index(value = {"message"}),
-                @Index(value = {"message", "sequence"}, unique = true),
+                @Index(value = {"message", "sequence", "subsequence"}, unique = true),
                 @Index(value = {"message", "cid"})
         }
 )
@@ -57,21 +55,11 @@ public class EntityAttachment {
     static final Integer PGP_MESSAGE = 1;
     static final Integer PGP_SIGNATURE = 2;
     static final Integer PGP_KEY = 3;
-
-    // https://developer.android.com/guide/topics/media/media-formats#image-formats
-    private static final List<String> IMAGE_TYPES = Collections.unmodifiableList(Arrays.asList(
-            "image/bmp",
-            "image/gif",
-            "image/jpeg",
-            "image/jpg",
-            "image/png",
-            "image/webp"
-    ));
-
-    private static final List<String> IMAGE_TYPES8 = Collections.unmodifiableList(Arrays.asList(
-            "image/heic",
-            "image/heif"
-    ));
+    static final Integer PGP_CONTENT = 4;
+    static final Integer SMIME_MESSAGE = 5;
+    static final Integer SMIME_SIGNATURE = 6;
+    static final Integer SMIME_SIGNED_DATA = 7;
+    static final Integer SMIME_CONTENT = 8;
 
     @PrimaryKey(autoGenerate = true)
     public Long id;
@@ -79,6 +67,7 @@ public class EntityAttachment {
     public Long message;
     @NonNull
     public Integer sequence;
+    public Integer subsequence; // embedded messages
     public String name;
     @NonNull
     public String type;
@@ -91,16 +80,30 @@ public class EntityAttachment {
     public Boolean available = false;
     public String error;
 
+    // Gmail sends inline images as attachments with a name and cid
+
     boolean isInline() {
-        return (disposition != null && disposition.equalsIgnoreCase(Part.INLINE) && cid != null);
+        return (Part.INLINE.equals(disposition) || cid != null);
+    }
+
+    boolean isAttachment() {
+        return (Part.ATTACHMENT.equals(disposition) || !TextUtils.isEmpty(name));
     }
 
     boolean isImage() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            if (IMAGE_TYPES8.contains(type))
-                return true;
+        return ImageHelper.isImage(getMimeType());
+    }
 
-        return IMAGE_TYPES.contains(type);
+    boolean isEncryption() {
+        if ("application/pkcs7-mime".equals(type))
+            return true;
+        if ("application/x-pkcs7-mime".equals(type))
+            return true;
+        if ("application/pkcs7-signature".equals(type))
+            return true;
+        if ("application/x-pkcs7-signature".equals(type))
+            return true;
+        return (encryption != null);
     }
 
     File getFile(Context context) {
@@ -114,8 +117,8 @@ public class EntityAttachment {
         String filename = Long.toString(id);
         if (!TextUtils.isEmpty(name))
             filename += "." + Helper.sanitizeFilename(name);
-        if (filename.length() > 255)
-            filename = filename.substring(0, 255);
+        if (filename.length() > 127)
+            filename = filename.substring(0, 127);
         return new File(dir, filename);
     }
 
@@ -125,8 +128,6 @@ public class EntityAttachment {
         List<EntityAttachment> attachments = db.attachment().getAttachments(oldid);
         for (EntityAttachment attachment : attachments) {
             File source = attachment.getFile(context);
-
-            long aid = attachment.id;
 
             attachment.id = null;
             attachment.message = newid;
@@ -139,11 +140,98 @@ public class EntityAttachment {
                     Helper.copy(source, target);
                 } catch (IOException ex) {
                     Log.e(ex);
-                    db.attachment().setError(aid, Helper.formatThrowable(ex, false));
-                    db.attachment().setError(attachment.id, Helper.formatThrowable(ex, false));
+                    db.attachment().setError(attachment.id, Log.formatThrowable(ex, false));
                 }
             }
         }
+    }
+
+    String getMimeType() {
+        // Try to guess a better content type
+        // For example, sometimes PDF files are sent as application/octet-stream
+
+        // https://android.googlesource.com/platform/libcore/+/refs/tags/android-9.0.0_r49/luni/src/main/java/libcore/net/MimeUtils.java
+        // https://docs.microsoft.com/en-us/archive/blogs/vsofficedeveloper/office-2007-file-format-mime-types-for-http-content-streaming-2
+
+        if (encryption != null)
+            return type;
+
+        String extension = Helper.getExtension(name);
+        if (extension == null)
+            return type;
+
+        String gtype = Helper.guessMimeType(name);
+        if (!TextUtils.isEmpty(type) && !type.equals(gtype))
+            Log.w("Mime type=" + type + " extension=" + extension + " guessed=" + gtype);
+
+        extension = extension.toLowerCase(Locale.ROOT);
+
+        // Fix types
+        if ("csv".equals(extension))
+            return "text/csv";
+
+        if ("dxf".equals(extension))
+            return "application/dxf";
+
+        if ("gpx".equals(extension))
+            return "application/gpx+xml";
+
+        if ("doc".equals(extension))
+            return "application/msword";
+
+        if ("docx".equals(extension))
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+        if ("xls".equals(extension))
+            return "application/vnd.ms-excel";
+
+        if ("xlsx".equals(extension))
+            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+        if ("ppt".equals(extension))
+            return "application/vnd.ms-powerpoint";
+
+        if ("pptx".equals(extension))
+            return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+        if ("pdf".equals(extension))
+            return "application/pdf";
+
+        if ("text/plain".equals(type) &&
+                ("ics".equals(extension) || "vcs".equals(extension)))
+            return "text/calendar";
+
+        if ("text/plain".equals(type) && "ovpn".equals(extension))
+            return "application/x-openvpn-profile";
+
+        if ("audio/mid".equals(type))
+            return "audio/midi";
+
+        // https://www.rfc-editor.org/rfc/rfc3555.txt
+        if ("video/jpeg".equals(type))
+            return "image/jpeg";
+
+        if (!TextUtils.isEmpty(type) &&
+                (type.endsWith("/pdf") || type.endsWith("/x-pdf")))
+            return "application/pdf";
+
+        // Guess types
+        if (gtype != null) {
+            if (TextUtils.isEmpty(type) ||
+                    "*/*".equals(type) ||
+                    type.startsWith("unknown/") ||
+                    type.endsWith("/unknown") ||
+                    "application/base64".equals(type) ||
+                    "application/octet-stream".equals(type) ||
+                    "application/zip".equals(type))
+                return gtype;
+
+            // Some servers erroneously remove dots from mime types
+            if (gtype.replace(".", "").equals(type))
+                return gtype;
+        }
+
+        return type;
     }
 
     @Override
@@ -159,7 +247,8 @@ public class EntityAttachment {
                     Objects.equals(this.encryption, other.encryption) &&
                     Objects.equals(this.size, other.size) &&
                     Objects.equals(this.progress, other.progress) &&
-                    this.available.equals(other.available));
+                    this.available.equals(other.available) &&
+                    Objects.equals(this.error, other.error));
         } else
             return false;
     }

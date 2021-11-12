@@ -8,7 +8,9 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/clItem"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
+        android:layout_height="wrap_content"
+        android:foreground="?attr/selectableItemBackground"
+        android:minHeight="42dp">
 
         <ImageView
             android:id="@+id/ivItem"
@@ -19,9 +21,17 @@
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent"
-            app:srcCompat="@drawable/baseline_mail_outline_24" />
+            app:srcCompat="@drawable/twotone_folder_special_24" />
 
-        <TextView
+        <ImageView
+            android:id="@+id/ivBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:layout_constraintBottom_toBottomOf="@+id/ivItem"
+            app:layout_constraintStart_toStartOf="@+id/ivItem"
+            app:srcCompat="@drawable/badge" />
+
+        <eu.faircode.email.FixedTextView
             android:id="@+id/tvItem"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -29,49 +39,48 @@
             android:layout_marginEnd="12dp"
             android:ellipsize="middle"
             android:gravity="center_vertical"
-            android:minHeight="48dp"
             android:singleLine="true"
             android:text="Nav item"
-            android:textAppearance="@style/Base.TextAppearance.AppCompat.Medium"
+            android:textAppearance="@style/TextAppearance.AppCompat.Medium"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toStartOf="@+id/tvItemExtra"
             app:layout_constraintStart_toEndOf="@id/ivItem"
             app:layout_constraintTop_toTopOf="parent" />
 
-        <TextView
+        <eu.faircode.email.FixedTextView
             android:id="@+id/tvItemExtra"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
             android:layout_marginEnd="12dp"
             android:gravity="center_vertical"
-            android:minHeight="48dp"
             android:singleLine="true"
             android:text="Extra"
-            android:textAppearance="@style/Base.TextAppearance.AppCompat.Small"
+            android:textAppearance="@style/TextAppearance.AppCompat.Small"
             app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toStartOf="@+id/ivExternal"
+            app:layout_constraintEnd_toStartOf="@+id/ivExtra"
+            app:layout_constraintStart_toEndOf="@id/tvItem"
             app:layout_constraintTop_toTopOf="parent" />
 
         <ImageView
-            android:id="@+id/ivExternal"
+            android:id="@+id/ivExtra"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="12dp"
-            android:src="@drawable/baseline_open_in_new_24"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toStartOf="@+id/ivWarning"
-            app:layout_constraintTop_toTopOf="parent" />
+            app:layout_constraintTop_toTopOf="parent"
+            app:srcCompat="@drawable/twotone_open_in_new_24" />
 
         <ImageView
             android:id="@+id/ivWarning"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="12dp"
-            android:src="@drawable/baseline_warning_24"
-            android:tint="@color/colorError"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+            app:layout_constraintTop_toTopOf="parent"
+            app:srcCompat="@drawable/twotone_warning_24"
+            app:tint="?attr/colorWarning" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 </FrameLayout>

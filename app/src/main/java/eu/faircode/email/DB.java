@@ -1,13 +1,20 @@
 package eu.faircode.email;
 
+import static eu.faircode.email.ServiceAuthenticator.AUTH_TYPE_PASSWORD;
+
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.net.Uri;
+import android.os.Build;
 import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
+import androidx.lifecycle.Observer;
 import androidx.preference.PreferenceManager;
 import androidx.room.Database;
+import androidx.room.DatabaseConfiguration;
 import androidx.room.InvalidationTracker;
 import androidx.room.Room;
 import androidx.room.RoomDatabase;
@@ -23,17 +30,21 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import javax.mail.Address;
 import javax.mail.internet.InternetAddress;
 
 import io.requery.android.database.sqlite.RequerySQLiteOpenHelperFactory;
+import io.requery.android.database.sqlite.SQLiteDatabase;
 
 /*
     This file is part of FairEmail.
@@ -51,13 +62,13 @@ import io.requery.android.database.sqlite.RequerySQLiteOpenHelperFactory;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 // https://developer.android.com/topic/libraries/architecture/room.html
 
 @Database(
-        version = 98,
+        version = 216,
         entities = {
                 EntityIdentity.class,
                 EntityAccount.class,
@@ -66,11 +77,16 @@ import io.requery.android.database.sqlite.RequerySQLiteOpenHelperFactory;
                 EntityAttachment.class,
                 EntityOperation.class,
                 EntityContact.class,
+                EntityCertificate.class,
                 EntityAnswer.class,
                 EntityRule.class,
+                EntitySearch.class,
                 EntityLog.class
         },
         views = {
+                TupleAccountView.class,
+                TupleIdentityView.class,
+                TupleFolderView.class
         }
 )
 
@@ -90,54 +106,257 @@ public abstract class DB extends RoomDatabase {
 
     public abstract DaoContact contact();
 
+    public abstract DaoCertificate certificate();
+
     public abstract DaoAnswer answer();
 
     public abstract DaoRule rule();
 
+    public abstract DaoSearch search();
+
     public abstract DaoLog log();
 
+    private static int sPid;
+    private static Context sContext;
     private static DB sInstance;
-    private static final ExecutorService executor = Executors.newSingleThreadExecutor(Helper.backgroundThreadFactory);
+
+    static final int DEFAULT_QUERY_THREADS = 4; // AndroidX default thread count: 4
+    static final int DEFAULT_CACHE_SIZE = 7; // percentage of memory class
 
     private static final String DB_NAME = "fairemail";
-    private static final long VACUUM_INTERVAL = 24 * 3600 * 1000L;
+    private static final int DB_CHECKPOINT = 1000; // requery/sqlite-android default
 
-    public static synchronized DB getInstance(Context context) {
-        if (sInstance == null) {
-            Context acontext = context.getApplicationContext();
+    private static final String[] DB_TABLES = new String[]{
+            "identity", "account", "folder", "message", "attachment", "operation", "contact", "certificate", "answer", "rule", "search", "log"};
 
-            sInstance = migrate(acontext, getBuilder(acontext));
+    @Override
+    public void init(@NonNull DatabaseConfiguration configuration) {
+        // https://www.sqlite.org/pragma.html#pragma_wal_autocheckpoint
+        if (BuildConfig.DEBUG) {
+            File dbfile = configuration.context.getDatabasePath(DB_NAME);
+            if (dbfile.exists()) {
+                try (SQLiteDatabase db = SQLiteDatabase.openDatabase(dbfile.getPath(), null, SQLiteDatabase.OPEN_READWRITE)) {
+                    Log.i("Set PRAGMA wal_autocheckpoint=" + DB_CHECKPOINT);
+                    try (Cursor cursor = db.rawQuery("PRAGMA wal_autocheckpoint=" + DB_CHECKPOINT + ";", null)) {
+                        cursor.moveToNext(); // required
+                    }
+                }
+            }
+        }
 
-            // https://www.sqlite.org/lang_vacuum.html
-            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-            long last_vacuum = prefs.getLong("last_vacuum", 0);
-            Log.i("Last VACUUM at " + new Date(last_vacuum));
+        super.init(configuration);
+    }
 
-            long now = new Date().getTime();
-            if (last_vacuum + VACUUM_INTERVAL < now)
-                try {
-                    Log.i("Running VACUUM");
-                    sInstance.getOpenHelper().getWritableDatabase().execSQL("VACUUM;");
-                    prefs.edit().putLong("last_vacuum", now).apply();
-                } catch (Throwable ex) {
-                    Log.e(ex);
+    static void setupViewInvalidation(Context context) {
+        // This needs to be done on a foreground thread
+        DB db = DB.getInstance(context);
+
+        db.account().liveAccountView().observeForever(new Observer<List<TupleAccountView>>() {
+            private List<TupleAccountView> last = null;
+
+            @Override
+            public void onChanged(List<TupleAccountView> accounts) {
+                if (accounts == null)
+                    accounts = new ArrayList<>();
+
+                boolean changed = false;
+                if (last == null || last.size() != accounts.size())
+                    changed = true;
+                else
+                    for (int i = 0; i < accounts.size(); i++)
+                        if (!accounts.get(i).equals(last.get(i))) {
+                            changed = true;
+                            last = accounts;
+                        }
+
+                if (changed) {
+                    Log.i("Invalidating account view");
+                    last = accounts;
+                    db.getInvalidationTracker().notifyObserversByTableNames("message");
+                }
+            }
+        });
+
+        db.identity().liveIdentityView().observeForever(new Observer<List<TupleIdentityView>>() {
+            private List<TupleIdentityView> last = null;
+
+            @Override
+            public void onChanged(List<TupleIdentityView> identities) {
+                if (identities == null)
+                    identities = new ArrayList<>();
+
+                boolean changed = false;
+                if (last == null || last.size() != identities.size())
+                    changed = true;
+                else
+                    for (int i = 0; i < identities.size(); i++)
+                        if (!identities.get(i).equals(last.get(i))) {
+                            changed = true;
+                            last = identities;
+                        }
+
+                if (changed) {
+                    Log.i("Invalidating identity view");
+                    last = identities;
+                    db.getInvalidationTracker().notifyObserversByTableNames("message");
+                }
+            }
+        });
+
+        db.folder().liveFolderView().observeForever(new Observer<List<TupleFolderView>>() {
+            private List<TupleFolderView> last = null;
+
+            @Override
+            public void onChanged(List<TupleFolderView> folders) {
+                if (folders == null)
+                    folders = new ArrayList<>();
+
+                boolean changed = false;
+                if (last == null || last.size() != folders.size())
+                    changed = true;
+                else
+                    for (int i = 0; i < folders.size(); i++)
+                        if (!folders.get(i).equals(last.get(i))) {
+                            changed = true;
+                            last = folders;
+                        }
+
+                if (changed) {
+                    Log.i("Invalidating folder view");
+                    last = folders;
+                    db.getInvalidationTracker().notifyObserversByTableNames("account", "message");
+                }
+            }
+        });
+    }
+
+    static void createEmergencyBackup(Context context) {
+        Log.i("Creating emergency backup");
+        try {
+            DB db = DB.getInstance(context);
+
+            JSONArray jaccounts = new JSONArray();
+            List<EntityAccount> accounts = db.account().getAccounts();
+            for (EntityAccount account : accounts) {
+                JSONObject jaccount = account.toJSON();
+
+                JSONArray jfolders = new JSONArray();
+                List<EntityFolder> folders = db.folder().getFolders(account.id, false, true);
+                for (EntityFolder folder : folders)
+                    jfolders.put(folder.toJSON());
+                jaccount.put("folders", jfolders);
+
+                JSONArray jidentities = new JSONArray();
+                List<EntityIdentity> identities = db.identity().getIdentities(account.id);
+                for (EntityIdentity identity : identities)
+                    jidentities.put(identity.toJSON());
+                jaccount.put("identities", jidentities);
+
+                jaccounts.put(jaccount);
+            }
+
+            File emergency = new File(context.getFilesDir(), "emergency.json");
+            Helper.writeText(emergency, jaccounts.toString(2));
+        } catch (Throwable ex) {
+            Log.e(ex);
+        }
+    }
+
+    private static void checkEmergencyBackup(Context context) {
+        try {
+            File dbfile = context.getDatabasePath(DB_NAME);
+            if (dbfile.exists()) {
+                Log.i("Emergency restore /dbfile");
+                return;
+            }
+
+            File emergency = new File(context.getFilesDir(), "emergency.json");
+            if (!emergency.exists()) {
+                Log.i("Emergency restore /json");
+                return;
+            }
+
+            DB db = DB.getInstance(context);
+            if (db.account().getAccounts().size() > 0) {
+                Log.e("Emergency restore /accounts");
+                return;
+            }
+
+            Log.e("Emergency restore");
+
+            String json = Helper.readText(emergency);
+            JSONArray jaccounts = new JSONArray(json);
+            for (int a = 0; a < jaccounts.length(); a++) {
+                JSONObject jaccount = jaccounts.getJSONObject(a);
+                EntityAccount account = EntityAccount.fromJSON(jaccount);
+                account.created = new Date().getTime();
+                account.id = db.account().insertAccount(account);
+
+                JSONArray jfolders = jaccount.getJSONArray("folders");
+                for (int f = 0; f < jfolders.length(); f++) {
+                    EntityFolder folder = EntityFolder.fromJSON(jfolders.getJSONObject(f));
+                    folder.account = account.id;
+                    db.folder().insertFolder(folder);
                 }
 
-            sInstance.getInvalidationTracker().addObserver(new InvalidationTracker.Observer(
-                    EntityAccount.TABLE_NAME,
-                    EntityIdentity.TABLE_NAME,
-                    EntityFolder.TABLE_NAME,
-                    EntityMessage.TABLE_NAME,
-                    EntityAttachment.TABLE_NAME,
-                    EntityOperation.TABLE_NAME,
-                    EntityContact.TABLE_NAME,
-                    EntityAnswer.TABLE_NAME,
-                    EntityRule.TABLE_NAME,
-                    EntityLog.TABLE_NAME) {
+                JSONArray jidentities = jaccount.getJSONArray("identities");
+                for (int i = 0; i < jidentities.length(); i++) {
+                    EntityIdentity identity = EntityIdentity.fromJSON(jidentities.getJSONObject(i));
+                    identity.account = account.id;
+                    db.identity().insertIdentity(identity);
+                }
+            }
+        } catch (Throwable ex) {
+            Log.e(ex);
+        }
+    }
+
+    public static synchronized DB getInstance(Context context) {
+        int apid = android.os.Process.myPid();
+        Context acontext = context.getApplicationContext();
+        if (sInstance != null &&
+                (sPid != apid || !Objects.equals(sContext, acontext)))
+            try {
+                Log.e("Orphan database instance pid=" + apid + "/" + sPid);
+                sInstance = null;
+            } catch (Throwable ex) {
+                Log.e(ex);
+            }
+        sPid = apid;
+        sContext = acontext;
+
+        if (sInstance == null) {
+            Log.i("Creating database instance pid=" + sPid);
+
+            sInstance = migrate(sContext, getBuilder(sContext)).build();
+
+            sInstance.getQueryExecutor().execute(new Runnable() {
+                @Override
+                public void run() {
+                    checkEmergencyBackup(sContext);
+                }
+            });
+
+            try {
+                Log.i("Disabling view invalidation");
+
+                Field fmViewTables = InvalidationTracker.class.getDeclaredField("mViewTables");
+                fmViewTables.setAccessible(true);
+
+                Map<String, Set<String>> mViewTables = (Map) fmViewTables.get(sInstance.getInvalidationTracker());
+                mViewTables.get("account_view").clear();
+                mViewTables.get("identity_view").clear();
+                mViewTables.get("folder_view").clear();
+
+                Log.i("Disabled view invalidation");
+            } catch (ReflectiveOperationException ex) {
+                Log.e(ex);
+            }
+
+            sInstance.getInvalidationTracker().addObserver(new InvalidationTracker.Observer(DB_TABLES) {
                 @Override
                 public void onInvalidated(@NonNull Set<String> tables) {
-                    if (BuildConfig.DEBUG)
-                        Log.i("ROOM invalidated=" + TextUtils.join(",", tables));
+                    Log.d("ROOM invalidated=" + TextUtils.join(",", tables));
                 }
             });
         }
@@ -157,35 +376,113 @@ public abstract class DB extends RoomDatabase {
             Log.e(ex);
         }
 
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        int threads = prefs.getInt("query_threads", DEFAULT_QUERY_THREADS);
+        boolean wal = prefs.getBoolean("wal", true);
+        Log.i("DB query threads=" + threads + " wal=" + wal);
+        ExecutorService executorQuery = Helper.getBackgroundExecutor(threads, "query");
+        ExecutorService executorTransaction = Helper.getBackgroundExecutor(0, "transaction");
+
         return Room
                 .databaseBuilder(context, DB.class, DB_NAME)
                 .openHelperFactory(new RequerySQLiteOpenHelperFactory())
-                .setQueryExecutor(executor)
-                .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
+                .setQueryExecutor(executorQuery)
+                .setTransactionExecutor(executorTransaction)
+                .setJournalMode(wal ? JournalMode.WRITE_AHEAD_LOGGING : JournalMode.TRUNCATE) // using the latest sqlite
                 .addCallback(new Callback() {
                     @Override
                     public void onOpen(@NonNull SupportSQLiteDatabase db) {
-                        Log.i("Creating triggers");
-                        db.execSQL("CREATE TRIGGER IF NOT EXISTS attachment_insert" +
-                                " AFTER INSERT ON attachment" +
-                                " BEGIN UPDATE message SET attachments = attachments + 1 WHERE message.id = NEW.message; END");
-                        db.execSQL("CREATE TRIGGER IF NOT EXISTS attachment_delete" +
-                                " AFTER DELETE ON attachment" +
-                                " BEGIN UPDATE message SET attachments = attachments - 1 WHERE message.id = OLD.message; END");
+                        Log.i("Database" +
+                                " version=" + db.getVersion() +
+                                " WAL=" + db.isWriteAheadLoggingEnabled());
+
+                        // https://www.sqlite.org/pragma.html#pragma_cache_size
+                        Integer cache_size = getCacheSizeKb(context);
+                        if (cache_size != null) {
+                            cache_size = -cache_size; // kibibytes
+                            Log.i("Set PRAGMA cache_size=" + cache_size);
+                            try (Cursor cursor = db.query("PRAGMA cache_size=" + cache_size + ";", null)) {
+                                cursor.moveToNext(); // required
+                            }
+                        }
+
+                        // Prevent long running operations from getting an exclusive lock
+                        // https://www.sqlite.org/pragma.html#pragma_cache_spill
+                        Log.i("Set PRAGMA cache_spill=0");
+                        try (Cursor cursor = db.query("PRAGMA cache_spill=0;", null)) {
+                            cursor.moveToNext(); // required
+                        }
+
+                        // https://www.sqlite.org/pragma.html
+                        for (String pragma : new String[]{
+                                "synchronous", "journal_mode",
+                                "wal_checkpoint", "wal_autocheckpoint", "journal_size_limit",
+                                "page_count", "page_size", "max_page_count", "freelist_count",
+                                "cache_size", "cache_spill",
+                                "soft_heap_limit", "hard_heap_limit", "mmap_size",
+                                "foreign_keys"})
+                            try (Cursor cursor = db.query("PRAGMA " + pragma + ";")) {
+                                Log.i("Get PRAGMA " + pragma + "=" + (cursor.moveToNext() ? cursor.getString(0) : "?"));
+                            }
+
+                        if (BuildConfig.DEBUG && false) {
+                            db.execSQL("DROP TRIGGER IF EXISTS `attachment_insert`");
+                            db.execSQL("DROP TRIGGER IF EXISTS `attachment_delete`");
+                        }
+                        createTriggers(db);
                     }
                 });
     }
 
-    private static DB migrate(final Context context, RoomDatabase.Builder<DB> builder) {
+    static Integer getCacheSizeKb(Context context) {
+        try {
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+            int sqlite_cache = prefs.getInt("sqlite_cache", DEFAULT_CACHE_SIZE);
+
+            ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            int class_mb = am.getMemoryClass();
+            int cache_size = sqlite_cache * class_mb * 1024 / 100;
+
+            return (cache_size > 2000 ? cache_size : null);
+        } catch (Throwable ex) {
+            Log.e(ex);
+            return null;
+        }
+    }
+
+    private static void createTriggers(@NonNull SupportSQLiteDatabase db) {
+        List<String> image = new ArrayList<>();
+        for (String img : ImageHelper.IMAGE_TYPES)
+            image.add("'" + img + "'");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            for (String img : ImageHelper.IMAGE_TYPES8)
+                image.add("'" + img + "'");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            for (String img : ImageHelper.IMAGE_TYPES12)
+                image.add("'" + img + "'");
+        String images = TextUtils.join(",", image);
+
+        db.execSQL("CREATE TRIGGER IF NOT EXISTS attachment_insert" +
+                " AFTER INSERT ON attachment" +
+                " BEGIN" +
+                "  UPDATE message SET attachments = attachments + 1" +
+                "  WHERE message.id = NEW.message" +
+                "  AND NEW.encryption IS NULL" +
+                "  AND NOT ((NEW.disposition = 'inline' OR NEW.cid IS NOT NULL) AND NEW.type IN (" + images + "));" +
+                " END");
+        db.execSQL("CREATE TRIGGER IF NOT EXISTS attachment_delete" +
+                " AFTER DELETE ON attachment" +
+                " BEGIN" +
+                "  UPDATE message SET attachments = attachments - 1" +
+                "  WHERE message.id = OLD.message" +
+                "  AND OLD.encryption IS NULL" +
+                "  AND NOT ((OLD.disposition = 'inline' OR OLD.cid IS NOT NULL) AND OLD.type IN (" + images + "));" +
+                " END");
+    }
+
+    private static RoomDatabase.Builder<DB> migrate(final Context context, RoomDatabase.Builder<DB> builder) {
         // https://www.sqlite.org/lang_altertable.html
         return builder
-                .addCallback(new Callback() {
-                    @Override
-                    public void onOpen(@NonNull SupportSQLiteDatabase db) {
-                        Log.i("Database version=" + db.getVersion());
-                        super.onOpen(db);
-                    }
-                })
                 .addMigrations(new Migration(1, 2) {
                     @Override
                     public void migrate(@NonNull SupportSQLiteDatabase db) {
@@ -909,7 +1206,7 @@ public abstract class DB extends RoomDatabase {
                     @Override
                     public void migrate(@NonNull SupportSQLiteDatabase db) {
                         Log.i("DB migration from version " + startVersion + " to " + endVersion);
-                        db.execSQL("DROP VIEW `folderview`");
+                        db.execSQL("DROP VIEW IF EXISTS `folderview`");
                     }
                 })
                 .addMigrations(new Migration(87, 88) {
@@ -991,7 +1288,976 @@ public abstract class DB extends RoomDatabase {
                         db.execSQL("ALTER TABLE `folder` ADD COLUMN `rename` TEXT");
                     }
                 })
-                .build();
+                .addMigrations(new Migration(98, 99) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `signature` INTEGER NOT NULL DEFAULT 1");
+                    }
+                })
+                .addMigrations(new Migration(99, 100) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `unsubscribe` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(100, 101) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `sender_extra_regex` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(101, 102) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `auto_seen` INTEGER NOT NULL DEFAULT 1");
+                    }
+                })
+                .addMigrations(new Migration(102, 103) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("UPDATE `account` SET browse = 1 WHERE pop = 1");
+                    }
+                })
+                .addMigrations(new Migration(103, 104) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("UPDATE `message` SET ui_hide = 1 WHERE ui_hide <> 0");
+                    }
+                })
+                .addMigrations(new Migration(104, 105) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `priority` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(105, 106) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `total` INTEGER");
+                        db.execSQL("UPDATE `message` SET total = size");
+                    }
+                })
+                .addMigrations(new Migration(106, 107) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `receipt` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(107, 108) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `color` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(108, 109) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `ignore_size` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(109, 110) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `ui_busy` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(110, 111) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `rule` ADD COLUMN `applied` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(111, 112) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `move_to` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(112, 113) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("CREATE TABLE IF NOT EXISTS `revision`" +
+                                " (`id` INTEGER PRIMARY KEY AUTOINCREMENT" +
+                                ", `message` INTEGER NOT NULL" +
+                                ", `sequence` INTEGER NOT NULL" +
+                                ", `reference` INTEGER NOT NULL" +
+                                ", FOREIGN KEY(`message`) REFERENCES `message`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)");
+                        db.execSQL("CREATE INDEX IF NOT EXISTS `index_revision_message` ON `revision` (`message`)");
+                        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_revision_message_sequence` ON `revision` (`message`, `sequence`)");
+                    }
+
+                })
+                .addMigrations(new Migration(113, 114) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("UPDATE message SET encrypt = 1 WHERE id IN " +
+                                "(SELECT DISTINCT message FROM attachment" +
+                                " WHERE encryption = " + EntityAttachment.PGP_MESSAGE + ")");
+                    }
+                })
+                .addMigrations(new Migration(114, 115) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("DROP TABLE revision");
+                    }
+                })
+                .addMigrations(new Migration(115, 116) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `use_date` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(116, 117) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("CREATE TABLE IF NOT EXISTS `certificate`" +
+                                " (`id` INTEGER PRIMARY KEY AUTOINCREMENT" +
+                                ", `subject` TEXT NOT NULL" +
+                                ", `email` TEXT" +
+                                ", `data` TEXT NOT NULL)");
+                        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_certificate_subject` ON `certificate` (`subject`)");
+                        db.execSQL("CREATE INDEX IF NOT EXISTS `index_certificate_email` ON `certificate` (`email`)");
+                    }
+                })
+                .addMigrations(new Migration(117, 118) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("DROP TABLE IF EXISTS `certificate`");
+                        db.execSQL("CREATE TABLE IF NOT EXISTS `certificate`" +
+                                " (`id` INTEGER PRIMARY KEY AUTOINCREMENT" +
+                                ", `fingerprint` TEXT NOT NULL" +
+                                ", `email` TEXT NOT NULL" +
+                                ", `subject` TEXT" +
+                                ", `data` TEXT NOT NULL)");
+                        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_certificate_fingerprint_email` ON `certificate` (`fingerprint`, `email`)");
+                        db.execSQL("CREATE INDEX IF NOT EXISTS `index_certificate_email` ON `certificate` (`email`)");
+                    }
+                })
+                .addMigrations(new Migration(118, 119) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `sign_key_alias` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(119, 120) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `certificate` ADD COLUMN `after` INTEGER");
+                        db.execSQL("ALTER TABLE `certificate` ADD COLUMN `before` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(120, 121) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("UPDATE `account` SET ondemand = 0");
+                    }
+                })
+                .addMigrations(new Migration(121, 122) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("UPDATE `message` SET raw = NULL");
+
+                        File[] raws = new File(context.getFilesDir(), "raw").listFiles();
+                        if (raws != null)
+                            for (File file : raws)
+                                file.delete();
+                    }
+                })
+                .addMigrations(new Migration(122, 123) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `fingerprint` TEXT");
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `fingerprint` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(123, 124) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `provider` TEXT");
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `provider` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(124, 125) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+                        int previous_version = prefs.getInt("previous_version", -1);
+                        if (previous_version <= 848 && Helper.isPlayStoreInstall()) {
+                            // JavaMail didn't check server certificates
+                            db.execSQL("UPDATE account SET insecure = 1 WHERE auth_type = " + AUTH_TYPE_PASSWORD);
+                            db.execSQL("UPDATE identity SET insecure = 1 WHERE auth_type = " + AUTH_TYPE_PASSWORD);
+                        }
+                    }
+                })
+                .addMigrations(new Migration(125, 126) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `autocrypt` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(126, 127) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `keep_alive_ok` INTEGER NOT NULL DEFAULT 0");
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `keep_alive_failed` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(127, 128) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `quota_usage` INTEGER");
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `quota_limit` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(128, 129) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `poll_exempted` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(129, 130) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `fts` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(130, 131) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `answer` ADD COLUMN `favorite` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(131, 132) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `ui_encrypt` INTEGER");
+                        db.execSQL("UPDATE `message` SET `ui_encrypt` = `encrypt`");
+                    }
+                })
+                .addMigrations(new Migration(132, 133) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `leave_on_server` INTEGER NOT NULL DEFAULT 1");
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `leave_on_device` INTEGER NOT NULL DEFAULT 0");
+                        db.execSQL("UPDATE `account` SET `leave_on_server` = `browse` WHERE `pop` = " + EntityAccount.TYPE_POP);
+                    }
+                })
+                .addMigrations(new Migration(133, 134) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("DROP TRIGGER IF EXISTS `attachment_insert`");
+                        db.execSQL("DROP TRIGGER IF EXISTS `attachment_delete`");
+                        createTriggers(db);
+                    }
+                })
+                .addMigrations(new Migration(134, 135) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("CREATE VIEW IF NOT EXISTS `account_view` AS " + TupleAccountView.query);
+                        db.execSQL("CREATE VIEW IF NOT EXISTS `identity_view` AS " + TupleIdentityView.query);
+                        db.execSQL("CREATE VIEW IF NOT EXISTS `folder_view` AS " + TupleFolderView.query);
+                    }
+                })
+                .addMigrations(new Migration(135, 136) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `certificate` ADD COLUMN `intermediate` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(136, 137) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `submitter` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(137, 138) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `importance` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(138, 139) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("UPDATE `message` SET fts = 0");
+                    }
+                })
+                .addMigrations(new Migration(139, 140) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("UPDATE `message` SET fts = 0");
+                    }
+                })
+                .addMigrations(new Migration(140, 141) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `certificate` INTEGER NOT NULL DEFAULT 0");
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `certificate` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(141, 142) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `certificate_alias` TEXT");
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `certificate_alias` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(142, 143) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `operation` ADD COLUMN `tries` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(143, 144) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `inferiors` INTEGER NOT NULL DEFAULT 1");
+                    }
+                })
+                .addMigrations(new Migration(144, 145) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `poll_factor` INTEGER NOT NULL DEFAULT 1");
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `poll_count` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(145, 146) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `max_messages` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(146, 147) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `thread` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(147, 148) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `cc` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(148, 149) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `leave_deleted` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(149, 150) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `language` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(150, 151) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `keep_alive_succeeded` INTEGER NOT NULL DEFAULT 0");
+                        db.execSQL("UPDATE account SET keep_alive_failed = 0, keep_alive_ok = 0");
+                    }
+                })
+                .addMigrations(new Migration(151, 152) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `hash` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(152, 153) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `unicode` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(153, 154) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `ehlo` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(154, 155) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("UPDATE `folder` SET `poll` = 1 WHERE `synchronize` = 0");
+                    }
+                })
+                .addMigrations(new Migration(155, 156) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("CREATE INDEX IF NOT EXISTS `index_message_inreplyto` ON `message` (`inreplyto`)");
+                    }
+                })
+                .addMigrations(new Migration(156, 157) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `wasforwardedfrom` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(157, 158) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `uidl` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(158, 159) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `ui_unsnoozed` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(159, 160) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("DROP TRIGGER attachment_insert");
+                        db.execSQL("DROP TRIGGER attachment_delete");
+                        createTriggers(db);
+                    }
+                })
+                .addMigrations(new Migration(160, 161) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+                        String encrypt_method = prefs.getString("default_encrypt_method", "pgp");
+                        db.execSQL("UPDATE identity SET encrypt = " + ("pgp".equals(encrypt_method) ? 0 : 1));
+                        prefs.edit().remove("default_encrypt_method").apply();
+                    }
+                })
+                .addMigrations(new Migration(161, 162) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `verified` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(162, 163) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("DROP TRIGGER attachment_insert");
+                        db.execSQL("DROP TRIGGER attachment_delete");
+                        createTriggers(db);
+                    }
+                })
+                .addMigrations(new Migration(163, 164) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("DROP TRIGGER attachment_insert");
+                        db.execSQL("DROP TRIGGER attachment_delete");
+                        createTriggers(db);
+                    }
+                })
+                .addMigrations(new Migration(164, 165) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("CREATE INDEX IF NOT EXISTS `index_attachment_message_type` ON `attachment` (`message`, `type`)");
+                    }
+                })
+                .addMigrations(new Migration(165, 166) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        db.execSQL("DROP INDEX `index_attachment_message_type`");
+                    }
+                })
+                .addMigrations(new Migration(166, 167) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `labels` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(167, 168) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `self` INTEGER NOT NULL DEFAULT 1");
+                    }
+                })
+                .addMigrations(new Migration(168, 169) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `max_size` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(169, 170) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `max_size` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(170, 171) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("DROP TRIGGER IF EXISTS `attachment_insert`");
+                        db.execSQL("DROP TRIGGER IF EXISTS `attachment_delete`");
+                        createTriggers(db);
+                    }
+                })
+                .addMigrations(new Migration(171, 172) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `use_received` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(172, 173) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `attachment` ADD COLUMN `subsequence` INTEGER");
+                        db.execSQL("DROP INDEX `index_attachment_message_sequence`");
+                        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_attachment_message_sequence_subsequence` ON `attachment` (`message`, `sequence`, `subsequence`)");
+                    }
+                })
+                .addMigrations(new Migration(173, 174) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `answer` ADD COLUMN `group` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(174, 175) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `answer` ADD COLUMN `standard` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(175, 176) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `auto_submitted` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(176, 177) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `backoff_until` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(177, 178) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("UPDATE folder" +
+                                " SET poll = 1" +
+                                " WHERE type <> '" + EntityFolder.INBOX + "'" +
+                                " AND account IN" +
+                                "  (SELECT id FROM account" +
+                                "   WHERE host IN ('imap.arcor.de'))");
+                    }
+                })
+                .addMigrations(new Migration(178, 179) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `local` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(179, 180) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `reply_domain` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(180, 181) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `rule` ADD COLUMN `last_applied` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(181, 182) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `auto_classify` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(182, 183) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `auto_classified` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(183, 184) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `auto_classify_source` INTEGER NOT NULL DEFAULT 0");
+                        db.execSQL("ALTER TABLE `folder` RENAME COLUMN `auto_classify` TO 'auto_classify_target'");
+                        db.execSQL("UPDATE `folder`" +
+                                " SET auto_classify_source = 1" +
+                                " WHERE (SELECT pop FROM account WHERE id = folder.account) = " + EntityAccount.TYPE_IMAP +
+                                " AND (auto_classify_target" +
+                                " OR type = '" + EntityFolder.INBOX + "'" +
+                                " OR type = '" + EntityFolder.JUNK + "')");
+                    }
+                })
+                .addMigrations(new Migration(184, 185) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `notes` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(185, 186) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `return_path` TEXT");
+                    }
+                })
+                .addMigrations(new Migration(186, 187) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `deleted` INTEGER NOT NULL DEFAULT 0");
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `ui_deleted` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(187, 188) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `ui_silent` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(188, 189) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `sign_default` INTEGER NOT NULL DEFAULT 0");
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `encrypt_default` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(189, 190) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `selected_count` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(190, 191) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `selected_last` INTEGER NOT NULL DEFAULT 0");
+                    }
+                })
+                .addMigrations(new Migration(191, 192) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `modseq` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(192, 193) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `notes_color` INTEGER");
+                    }
+                })
+                .addMigrations(new Migration(193, 194) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `sender_extra_name` INTEGER NOT NULL DEFAULT 0");
+                    }
+                }).addMigrations(new Migration(194, 195) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `answer` ADD COLUMN `receipt` INTEGER NOT NULL DEFAULT 0");
+                    }
+                }).addMigrations(new Migration(195, 196) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `identity` ADD COLUMN `internal` TEXT");
+                    }
+                }).addMigrations(new Migration(196, 197) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `answer` ADD COLUMN `applied` INTEGER NOT NULL DEFAULT 0");
+                        db.execSQL("ALTER TABLE `answer` ADD COLUMN `last_applied` INTEGER");
+                    }
+                }).addMigrations(new Migration(197, 198) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `show_images` INTEGER NOT NULL DEFAULT 0");
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `show_full` INTEGER NOT NULL DEFAULT 0");
+                    }
+                }).addMigrations(new Migration(198, 199) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `capability_idle` INTEGER");
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `capability_utf8` INTEGER");
+                    }
+                }).addMigrations(new Migration(199, 200) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `blocklist` INTEGER");
+                    }
+                }).addMigrations(new Migration(200, 201) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `bimi_selector` TEXT");
+                    }
+                }).addMigrations(new Migration(201, 202) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("UPDATE identity SET use_ip = 0 WHERE host = 'smtp.office365.com'");
+                    }
+                }).addMigrations(new Migration(202, 203) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `last_sync_count` INTEGER");
+                    }
+                }).addMigrations(new Migration(203, 204) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `uuid` TEXT NOT NULL DEFAULT ''");
+                        Cursor cursor = null;
+                        try {
+                            cursor = db.query("SELECT id FROM account");
+                            while (cursor != null && cursor.moveToNext()) {
+                                long id = cursor.getLong(0);
+                                String uuid = UUID.randomUUID().toString();
+                                Log.i("MMM account=" + id + " uuid=" + uuid);
+                                db.execSQL("UPDATE account SET uuid = ? WHERE id = ?",
+                                        new Object[]{uuid, id});
+                            }
+                        } catch (Throwable ex) {
+                            if (cursor != null)
+                                cursor.close();
+                        }
+                    }
+                }).addMigrations(new Migration(204, 205) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `answer` ADD COLUMN `external` INTEGER NOT NULL DEFAULT 0");
+                    }
+                }).addMigrations(new Migration(205, 206) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `capabilities` TEXT");
+                    }
+                }).addMigrations(new Migration(206, 207) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("DROP VIEW IF EXISTS `account_view`");
+                        db.execSQL("CREATE VIEW IF NOT EXISTS `account_view` AS " + TupleAccountView.query);
+                    }
+                }).addMigrations(new Migration(207, 208) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `log` ADD COLUMN `type` INTEGER NOT NULL DEFAULT " + EntityLog.Type.General.ordinal());
+                    }
+                }).addMigrations(new Migration(208, 209) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `log` ADD COLUMN `account` INTEGER");
+                        db.execSQL("ALTER TABLE `log` ADD COLUMN `folder` INTEGER");
+                        db.execSQL("ALTER TABLE `log` ADD COLUMN `message` INTEGER");
+                    }
+                }).addMigrations(new Migration(209, 210) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `namespace` TEXT");
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `separator` INTEGER");
+                        db.execSQL("UPDATE folder SET separator =" +
+                                " (SELECT separator FROM account WHERE account.id = folder.account)");
+                    }
+                }).addMigrations(new Migration(210, 211) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("CREATE TABLE `search`" +
+                                " (`id` INTEGER PRIMARY KEY AUTOINCREMENT" +
+                                ", name TEXT NOT NULL" +
+                                ", `data` TEXT NOT NULL)");
+                    }
+                }).addMigrations(new Migration(211, 212) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `search` ADD COLUMN `color` INTEGER");
+                    }
+                }).addMigrations(new Migration(212, 213) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `account` ADD COLUMN `category` TEXT");
+                    }
+                }).addMigrations(new Migration(213, 214) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("CREATE INDEX `index_account_synchronize` ON `account` (`synchronize`)");
+                        db.execSQL("CREATE INDEX `index_account_category` ON `account` (`category`)");
+                        db.execSQL("DROP VIEW IF EXISTS `account_view`");
+                        db.execSQL("CREATE VIEW IF NOT EXISTS `account_view` AS " + TupleAccountView.query);
+                    }
+                }).addMigrations(new Migration(214, 215) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `folder` ADD COLUMN `auto_add` INTEGER");
+                    }
+                }).addMigrations(new Migration(215, 216) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("ALTER TABLE `message` ADD COLUMN `infrastructure` TEXT");
+                    }
+                }).addMigrations(new Migration(998, 999) {
+                    @Override
+                    public void migrate(@NonNull SupportSQLiteDatabase db) {
+                        Log.i("DB migration from version " + startVersion + " to " + endVersion);
+                        db.execSQL("UPDATE account" +
+                                " SET partial_fetch = 0" +
+                                " WHERE host = 'imap.vodafonemail.de'" +
+                                " OR host = 'imap.arcor.de'" +
+                                " OR host = 'imap.nexgo.de'");
+                    }
+                });
+    }
+
+    public static void checkpoint(Context context) {
+        if (!BuildConfig.DEBUG)
+            return;
+
+        // https://www.sqlite.org/pragma.html#pragma_wal_checkpoint
+        DB db = getInstance(context);
+        db.getQueryExecutor().execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    long start = new Date().getTime();
+                    StringBuilder sb = new StringBuilder();
+                    SupportSQLiteDatabase sdb = db.getOpenHelper().getWritableDatabase();
+                    try (Cursor cursor = sdb.query("PRAGMA wal_checkpoint(PASSIVE);")) {
+                        if (cursor.moveToNext()) {
+                            for (int i = 0; i < cursor.getColumnCount(); i++) {
+                                if (i > 0)
+                                    sb.append(",");
+                                sb.append(cursor.getInt(i));
+                            }
+                        }
+                    }
+
+                    long elapse = new Date().getTime() - start;
+                    Log.i("PRAGMA wal_checkpoint=" + sb + " elapse=" + elapse);
+                } catch (Throwable ex) {
+                    Log.e(ex);
+                }
+            }
+        });
+    }
+
+    public static void shrinkMemory(Context context) {
+        DB db = getInstance(context);
+        db.getQueryExecutor().execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    SupportSQLiteDatabase sdb = db.getOpenHelper().getWritableDatabase();
+                    try (Cursor cursor = sdb.query("PRAGMA shrink_memory;")) {
+                        cursor.moveToNext();
+                    }
+                } catch (Throwable ex) {
+                    Log.e(ex);
+                }
+            }
+        });
     }
 
     @Override
@@ -1017,16 +2283,25 @@ public abstract class DB extends RoomDatabase {
         public static String[] toStringArray(String value) {
             if (value == null)
                 return new String[0];
-            else
-                return TextUtils.split(value, " ");
+            else {
+                String[] result = TextUtils.split(value, " ");
+                for (int i = 0; i < result.length; i++)
+                    result[i] = Uri.decode(result[i]);
+                return result;
+            }
         }
 
         @TypeConverter
         public static String fromStringArray(String[] value) {
             if (value == null || value.length == 0)
                 return null;
-            else
-                return TextUtils.join(" ", value);
+            else {
+                String[] copy = new String[value.length];
+                System.arraycopy(value, 0, copy, 0, value.length);
+                for (int i = 0; i < copy.length; i++)
+                    copy[i] = Uri.encode(copy[i]);
+                return TextUtils.join(" ", copy);
+            }
         }
 
         @TypeConverter
@@ -1060,26 +2335,17 @@ public abstract class DB extends RoomDatabase {
         public static Address[] decodeAddresses(String json) {
             if (json == null)
                 return null;
+
             List<Address> result = new ArrayList<>();
             try {
                 JSONArray jroot = new JSONArray(json);
-                JSONArray jaddresses = new JSONArray();
                 for (int i = 0; i < jroot.length(); i++) {
                     Object item = jroot.get(i);
                     if (jroot.get(i) instanceof JSONArray)
                         for (int j = 0; j < ((JSONArray) item).length(); j++)
-                            jaddresses.put(((JSONArray) item).get(j));
+                            result.add(InternetAddressJson.from((JSONObject) ((JSONArray) item).get(j)));
                     else
-                        jaddresses.put(item);
-                }
-                for (int i = 0; i < jaddresses.length(); i++) {
-                    JSONObject jaddress = (JSONObject) jaddresses.get(i);
-                    String email = jaddress.getString("address");
-                    String personal = jaddress.optString("personal");
-                    if (TextUtils.isEmpty(personal))
-                        result.add(new InternetAddress(email));
-                    else
-                        result.add(new InternetAddress(email, personal));
+                        result.add(InternetAddressJson.from((JSONObject) item));
                 }
             } catch (Throwable ex) {
                 // Compose can store invalid addresses
@@ -1087,6 +2353,17 @@ public abstract class DB extends RoomDatabase {
             }
             return result.toArray(new Address[0]);
         }
+
+        @TypeConverter
+        public static EntityLog.Type toLogType(int ordinal) {
+            return EntityLog.Type.values()[ordinal];
+        }
+
+        @TypeConverter
+        public static int fromLogType(EntityLog.Type type) {
+            if (type == null)
+                type = EntityLog.Type.General;
+            return type.ordinal();
+        }
     }
 }
-

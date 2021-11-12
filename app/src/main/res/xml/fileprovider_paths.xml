@@ -9,4 +9,13 @@
     <cache-path
         name="photo"
         path="photo" />
+    <cache-path
+        name="calendar"
+        path="calendar" />
+    <cache-path
+        name="images"
+        path="images" />
+    <cache-path
+        name="shared"
+        path="shared" />
 </paths>

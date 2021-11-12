@@ -16,13 +16,17 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 public class TupleAccountSwipes {
     public long id;
     public Long swipe_left;
     public String left_type;
+    public String left_name;
+    public Integer left_color;
     public Long swipe_right;
     public String right_type;
+    public String right_name;
+    public Integer right_color;
 }

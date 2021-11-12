@@ -16,17 +16,23 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Typeface;
 import android.os.Bundle;
+import android.text.SpannableString;
+import android.text.TextUtils;
+import android.text.style.RelativeSizeSpan;
+import android.text.style.StyleSpan;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -41,6 +47,8 @@ import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ListUpdateCallback;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.text.DateFormat;
+import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -51,13 +59,25 @@ public class AdapterAnswer extends RecyclerView.Adapter<AdapterAnswer.ViewHolder
     private LifecycleOwner owner;
     private LayoutInflater inflater;
 
-    private List<EntityAnswer> items = new ArrayList<>();
+    private DateFormat DF;
+    private NumberFormat NF = NumberFormat.getNumberInstance();
+
+    private String search = null;
+    private List<EntityAnswer> all = new ArrayList<>();
+    private List<EntityAnswer> selected = new ArrayList<>();
 
     private boolean composable = false;
 
     public class ViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener, View.OnLongClickListener {
         private View view;
         private TextView tvName;
+        private TextView tvGroup;
+        private ImageView ivExternal;
+        private ImageView ivStandard;
+        private ImageView ivFavorite;
+        private ImageView ivReceipt;
+        private TextView tvLastApplied;
+        private TextView tvApplied;
 
         private TwoStateOwner powner = new TwoStateOwner(owner, "RulePopup");
 
@@ -66,6 +86,13 @@ public class AdapterAnswer extends RecyclerView.Adapter<AdapterAnswer.ViewHolder
 
             view = itemView.findViewById(R.id.clItem);
             tvName = itemView.findViewById(R.id.tvName);
+            tvGroup = itemView.findViewById(R.id.tvGroup);
+            ivExternal = itemView.findViewById(R.id.ivExternal);
+            ivStandard = itemView.findViewById(R.id.ivStandard);
+            ivFavorite = itemView.findViewById(R.id.ivFavorite);
+            ivReceipt = itemView.findViewById(R.id.ivReceipt);
+            tvLastApplied = itemView.findViewById(R.id.tvLastApplied);
+            tvApplied = itemView.findViewById(R.id.tvApplied);
         }
 
         private void wire() {
@@ -81,6 +108,14 @@ public class AdapterAnswer extends RecyclerView.Adapter<AdapterAnswer.ViewHolder
         private void bindTo(EntityAnswer answer) {
             view.setAlpha(answer.hide ? Helper.LOW_LIGHT : 1.0f);
             tvName.setText(answer.name);
+            tvGroup.setText(answer.group);
+            tvGroup.setVisibility(TextUtils.isEmpty(answer.group) ? View.GONE : View.VISIBLE);
+            ivExternal.setVisibility(answer.external ? View.VISIBLE : View.GONE);
+            ivStandard.setVisibility(answer.standard ? View.VISIBLE : View.GONE);
+            ivFavorite.setVisibility(answer.favorite ? View.VISIBLE : View.GONE);
+            ivReceipt.setVisibility(answer.receipt ? View.VISIBLE : View.GONE);
+            tvLastApplied.setText(answer.last_applied == null ? null : DF.format(answer.last_applied));
+            tvApplied.setText(NF.format(answer.applied));
         }
 
         @Override
@@ -89,7 +124,7 @@ public class AdapterAnswer extends RecyclerView.Adapter<AdapterAnswer.ViewHolder
             if (pos == RecyclerView.NO_POSITION)
                 return;
 
-            EntityAnswer answer = items.get(pos);
+            EntityAnswer answer = selected.get(pos);
 
             LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(context);
             lbm.sendBroadcast(
@@ -103,43 +138,75 @@ public class AdapterAnswer extends RecyclerView.Adapter<AdapterAnswer.ViewHolder
             if (pos == RecyclerView.NO_POSITION)
                 return false;
 
-            final EntityAnswer answer = items.get(pos);
+            final EntityAnswer answer = selected.get(pos);
 
             PopupMenuLifecycle popupMenu = new PopupMenuLifecycle(context, powner, view);
 
-            popupMenu.getMenu().add(Menu.NONE, 0, 0, answer.name).setEnabled(false);
+            SpannableString ss = new SpannableString(answer.name);
+            ss.setSpan(new StyleSpan(Typeface.ITALIC), 0, ss.length(), 0);
+            ss.setSpan(new RelativeSizeSpan(0.9f), 0, ss.length(), 0);
+            popupMenu.getMenu().add(Menu.NONE, 0, 0, ss).setEnabled(false);
 
             if (composable)
                 popupMenu.getMenu().add(Menu.NONE, R.string.title_compose, 1, R.string.title_compose);
-            popupMenu.getMenu().add(Menu.NONE, R.string.title_answer_hide, 2, R.string.title_answer_hide)
+            popupMenu.getMenu().add(Menu.NONE, R.string.title_answer_favorite, 2, R.string.title_answer_favorite)
+                    .setCheckable(true).setChecked(answer.favorite);
+            popupMenu.getMenu().add(Menu.NONE, R.string.title_answer_hide, 3, R.string.title_answer_hide)
                     .setCheckable(true).setChecked(answer.hide);
-            popupMenu.getMenu().add(Menu.NONE, R.string.title_copy, 3, R.string.title_copy);
+            popupMenu.getMenu().add(Menu.NONE, R.string.title_reset, 4, R.string.title_reset);
+            popupMenu.getMenu().add(Menu.NONE, R.string.title_copy, 5, R.string.title_copy);
 
             popupMenu.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
                 @Override
                 public boolean onMenuItemClick(MenuItem item) {
-                    switch (item.getItemId()) {
-                        case R.string.title_compose:
-                            onActionCompose();
-                            return true;
-
-                        case R.string.title_answer_hide:
-                            onActionHide(!item.isChecked());
-                            return true;
-
-                        case R.string.title_copy:
-                            onActionCopy();
-                            return true;
-
-                        default:
-                            return false;
+                    int itemId = item.getItemId();
+                    if (itemId == R.string.title_compose) {
+                        onActionCompose();
+                        return true;
+                    } else if (itemId == R.string.title_answer_favorite) {
+                        onActionFavorite(!item.isChecked());
+                        return true;
+                    } else if (itemId == R.string.title_answer_hide) {
+                        onActionHide(!item.isChecked());
+                        return true;
+                    } else if (itemId == R.string.title_reset) {
+                        onActionReset();
+                        return true;
+                    } else if (itemId == R.string.title_copy) {
+                        onActionCopy();
+                        return true;
                     }
+                    return false;
                 }
 
                 private void onActionCompose() {
                     context.startActivity(new Intent(context, ActivityCompose.class)
                             .putExtra("action", "new")
                             .putExtra("answer", answer.id));
+                }
+
+                private void onActionFavorite(boolean favorite) {
+                    Bundle args = new Bundle();
+                    args.putLong("id", answer.id);
+                    args.putBoolean("favorite", favorite);
+
+                    new SimpleTask<Boolean>() {
+                        @Override
+                        protected Boolean onExecute(Context context, Bundle args) {
+                            long id = args.getLong("id");
+                            boolean favorite = args.getBoolean("favorite");
+
+                            DB db = DB.getInstance(context);
+                            db.answer().setAnswerFavorite(id, favorite);
+
+                            return favorite;
+                        }
+
+                        @Override
+                        protected void onException(Bundle args, Throwable ex) {
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
+                        }
+                    }.execute(context, owner, args, "answer:favorite");
                 }
 
                 private void onActionHide(boolean hide) {
@@ -161,9 +228,31 @@ public class AdapterAnswer extends RecyclerView.Adapter<AdapterAnswer.ViewHolder
 
                         @Override
                         protected void onException(Bundle args, Throwable ex) {
-                            Helper.unexpectedError(parentFragment.getFragmentManager(), ex);
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
                         }
-                    }.execute(context, owner, args, "rule:enable");
+                    }.execute(context, owner, args, "answer:hide");
+                }
+
+                private void onActionReset() {
+                    Bundle args = new Bundle();
+                    args.putLong("id", answer.id);
+
+                    new SimpleTask<Void>() {
+                        @Override
+                        protected Void onExecute(Context context, Bundle args) {
+                            long id = args.getLong("id");
+
+                            DB db = DB.getInstance(context);
+                            db.answer().resetAnswer(id);
+
+                            return null;
+                        }
+
+                        @Override
+                        protected void onException(Bundle args, Throwable ex) {
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
+                        }
+                    }.execute(context, owner, args, "answer:reset");
                 }
 
                 private void onActionCopy() {
@@ -188,13 +277,16 @@ public class AdapterAnswer extends RecyclerView.Adapter<AdapterAnswer.ViewHolder
         this.owner = parentFragment.getViewLifecycleOwner();
         this.inflater = LayoutInflater.from(context);
 
+        this.DF = Helper.getDateTimeInstance(this.context);
+
         setHasStableIds(true);
 
         owner.getLifecycle().addObserver(new LifecycleObserver() {
             @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
             public void onDestroyed() {
-                Log.i(AdapterAnswer.this + " parent destroyed");
+                Log.d(AdapterAnswer.this + " parent destroyed");
                 AdapterAnswer.this.parentFragment = null;
+                owner.getLifecycle().removeObserver(this);
             }
         });
 
@@ -202,7 +294,8 @@ public class AdapterAnswer extends RecyclerView.Adapter<AdapterAnswer.ViewHolder
             @Override
             protected Boolean onExecute(Context context, Bundle args) {
                 DB db = DB.getInstance(context);
-                return (db.identity().getComposableIdentities(null).size() > 0);
+                List<TupleIdentityEx> identities = db.identity().getComposableIdentities(null);
+                return (identities != null && identities.size() > 0);
             }
 
             @Override
@@ -212,43 +305,65 @@ public class AdapterAnswer extends RecyclerView.Adapter<AdapterAnswer.ViewHolder
 
             @Override
             protected void onException(Bundle args, Throwable ex) {
-                Helper.unexpectedError(parentFragment.getFragmentManager(), ex);
+                Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
             }
         }.execute(context, owner, new Bundle(), "answer:composable");
     }
 
     public void set(@NonNull List<EntityAnswer> answers) {
-        Log.i("Set answers=" + answers.size());
+        Log.i("Set answers=" + answers.size() + " search=" + search);
 
-        DiffUtil.DiffResult diff = DiffUtil.calculateDiff(new DiffCallback(items, answers), false);
+        all = answers;
 
-        items = answers;
+        List<EntityAnswer> items;
+        if (TextUtils.isEmpty(search))
+            items = all;
+        else {
+            items = new ArrayList<>();
+            String query = search.toLowerCase().trim();
+            for (EntityAnswer answer : answers) {
+                if (answer.name.toLowerCase().contains(query) ||
+                        (answer.group != null && answer.group.toLowerCase().contains(query)) ||
+                        answer.text.toLowerCase().contains(query))
+                    items.add(answer);
+            }
+        }
+
+        DiffUtil.DiffResult diff = DiffUtil.calculateDiff(new DiffCallback(selected, items), false);
+
+        selected = items;
 
         diff.dispatchUpdatesTo(new ListUpdateCallback() {
             @Override
             public void onInserted(int position, int count) {
-                Log.i("Inserted @" + position + " #" + count);
+                Log.d("Inserted @" + position + " #" + count);
             }
 
             @Override
             public void onRemoved(int position, int count) {
-                Log.i("Removed @" + position + " #" + count);
+                Log.d("Removed @" + position + " #" + count);
             }
 
             @Override
             public void onMoved(int fromPosition, int toPosition) {
-                Log.i("Moved " + fromPosition + ">" + toPosition);
+                Log.d("Moved " + fromPosition + ">" + toPosition);
             }
 
             @Override
             public void onChanged(int position, int count, Object payload) {
-                Log.i("Changed @" + position + " #" + count);
+                Log.d("Changed @" + position + " #" + count);
             }
         });
         diff.dispatchUpdatesTo(this);
     }
 
-    private class DiffCallback extends DiffUtil.Callback {
+    public void search(String query) {
+        Log.i("Answers query=" + query);
+        search = query;
+        set(all);
+    }
+
+    private static class DiffCallback extends DiffUtil.Callback {
         private List<EntityAnswer> prev = new ArrayList<>();
         private List<EntityAnswer> next = new ArrayList<>();
 
@@ -284,12 +399,12 @@ public class AdapterAnswer extends RecyclerView.Adapter<AdapterAnswer.ViewHolder
 
     @Override
     public long getItemId(int position) {
-        return items.get(position).id;
+        return selected.get(position).id;
     }
 
     @Override
     public int getItemCount() {
-        return items.size();
+        return selected.size();
     }
 
     @Override
@@ -300,14 +415,11 @@ public class AdapterAnswer extends RecyclerView.Adapter<AdapterAnswer.ViewHolder
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+        EntityAnswer answer = selected.get(position);
+        holder.powner.recreate(answer == null ? null : answer.id);
+
         holder.unwire();
-        EntityAnswer answer = items.get(position);
         holder.bindTo(answer);
         holder.wire();
-    }
-
-    @Override
-    public void onViewRecycled(@NonNull ViewHolder holder) {
-        holder.powner.recreate();
     }
 }

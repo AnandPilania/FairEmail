@@ -16,7 +16,7 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import androidx.lifecycle.LiveData;
@@ -30,18 +30,22 @@ import java.util.List;
 public interface DaoLog {
     @Query("SELECT * FROM log" +
             " WHERE time > :from" +
-            " ORDER BY time DESC")
-    LiveData<List<EntityLog>> liveLogs(long from);
+            " AND (:type IS NULL OR type = :type)" +
+            " ORDER BY time DESC" +
+            " LIMIT 2000")
+    LiveData<List<EntityLog>> liveLogs(long from, Integer type);
 
     @Query("SELECT * FROM log" +
             " WHERE time > :from" +
+            " AND (:type IS NULL OR type = :type)" +
             " ORDER BY time DESC")
-    List<EntityLog> getLogs(long from);
+    List<EntityLog> getLogs(long from, Integer type);
 
     @Insert
     long insertLog(EntityLog log);
 
     @Query("DELETE FROM log" +
-            " WHERE time < :before")
-    int deleteLogs(long before);
+            " WHERE id IN (SELECT id FROM log" +
+            " WHERE time < :before ORDER BY time LIMIT :limit)")
+    int deleteLogs(long before, int limit);
 }

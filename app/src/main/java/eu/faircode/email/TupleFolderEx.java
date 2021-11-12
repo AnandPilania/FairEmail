@@ -16,7 +16,7 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.app.Notification;
@@ -38,27 +38,29 @@ import java.util.Objects;
 
 public class TupleFolderEx extends EntityFolder implements Serializable {
     public Long accountId;
+    public Integer accountProtocol;
     public Integer accountOrder;
     public String accountName;
+    public String accountCategory;
     public Integer accountColor;
     public String accountState;
     public int rules;
     public int messages;
     public int content;
     public int unseen;
+    public int flagged;
     public int executing;
 
     @Ignore
-    int indentation = 0;
-
+    public int indentation = 0;
     @Ignore
-    boolean expander = true;
-
+    public boolean expander = true;
     @Ignore
-    TupleFolderEx parent_ref;
-
+    public TupleFolderEx parent_ref;
     @Ignore
-    List<TupleFolderEx> child_refs;
+    public List<TupleFolderEx> child_refs;
+    @Ignore
+    public int childs_unseen = 0;
 
     @Override
     public boolean equals(Object obj) {
@@ -66,13 +68,17 @@ public class TupleFolderEx extends EntityFolder implements Serializable {
             TupleFolderEx other = (TupleFolderEx) obj;
             return (super.equals(obj) &&
                     Objects.equals(this.accountId, other.accountId) &&
+                    Objects.equals(this.accountProtocol, other.accountProtocol) &&
+                    Objects.equals(this.accountOrder, other.accountOrder) &&
                     Objects.equals(this.accountName, other.accountName) &&
+                    Objects.equals(this.accountCategory, other.accountCategory) &&
                     Objects.equals(this.accountColor, other.accountColor) &&
                     Objects.equals(this.accountState, other.accountState) &&
                     this.rules == other.rules &&
                     this.messages == other.messages &&
                     this.content == other.content &&
                     this.unseen == other.unseen &&
+                    this.flagged == other.flagged &&
                     this.executing == other.executing);
         } else
             return false;
@@ -90,6 +96,7 @@ public class TupleFolderEx extends EntityFolder implements Serializable {
                 NotificationManager.IMPORTANCE_HIGH);
         channel.setGroup(group.getId());
         channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+        channel.setBypassDnd(true);
         channel.enableLights(true);
         nm.createNotificationChannel(channel);
     }
@@ -112,6 +119,12 @@ public class TupleFolderEx extends EntityFolder implements Serializable {
             public int compare(Object o1, Object o2) {
                 TupleFolderEx f1 = (TupleFolderEx) o1;
                 TupleFolderEx f2 = (TupleFolderEx) o2;
+
+                int c = collator.compare(
+                        f1.accountCategory == null ? "" : f1.accountCategory,
+                        f2.accountCategory == null ? "" : f2.accountCategory);
+                if (c != 0)
+                    return c;
 
                 // Outbox
                 if (f1.accountName == null && f2.accountName == null)

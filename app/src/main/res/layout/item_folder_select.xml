@@ -8,8 +8,8 @@
         android:id="@+id/clItem"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="?attr/activatableItemBackground"
-        android:padding="6dp">
+        android:background="?attr/selectableItemBackground"
+        android:padding="3dp">
 
         <View
             android:id="@+id/vwLevel"
@@ -20,13 +20,13 @@
             app:layout_constraintTop_toTopOf="parent" />
 
         <ImageButton
-            android:id="@+id/ivExpander"
+            android:id="@+id/ibExpander"
             android:layout_width="36dp"
             android:layout_height="0dp"
             android:layout_gravity="center_vertical|center_horizontal"
             android:background="?android:attr/selectableItemBackground"
             android:contentDescription="@string/title_legend_expander"
-            android:padding="6dp"
+            app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintDimensionRatio="1:1"
             app:layout_constraintStart_toEndOf="@+id/vwLevel"
             app:layout_constraintTop_toTopOf="parent"
@@ -35,14 +35,15 @@
         <ImageView
             android:id="@+id/ivType"
             android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:contentDescription="@string/title_legend_folder_type"
-            app:layout_constraintBottom_toBottomOf="@id/ivExpander"
-            app:layout_constraintStart_toEndOf="@id/ivExpander"
-            app:layout_constraintTop_toTopOf="@id/ivExpander"
-            app:srcCompat="@drawable/baseline_inbox_24" />
+            android:layout_height="36dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            app:layout_constraintBottom_toBottomOf="@id/ibExpander"
+            app:layout_constraintStart_toEndOf="@id/ibExpander"
+            app:layout_constraintTop_toTopOf="@id/ibExpander"
+            app:srcCompat="@drawable/twotone_inbox_24" />
 
-        <TextView
+        <eu.faircode.email.FixedTextView
             android:id="@+id/tvName"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -53,9 +54,9 @@
             android:singleLine="true"
             android:text="Name"
             android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-            app:layout_constraintBottom_toBottomOf="@id/ivExpander"
+            app:layout_constraintBottom_toBottomOf="@id/ibExpander"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toEndOf="@id/ivType"
-            app:layout_constraintTop_toTopOf="@id/ivExpander" />
+            app:layout_constraintTop_toTopOf="@id/ibExpander" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 </FrameLayout>

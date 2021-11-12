@@ -16,14 +16,14 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.util.AttributeSet;
-import android.widget.FrameLayout;
+import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -31,42 +31,64 @@ import androidx.cardview.widget.CardView;
 import androidx.preference.PreferenceManager;
 
 public class ViewCardOptional extends CardView {
+    private boolean cards;
+    private boolean compact;
+    private int padding;
+    private int margin;
+    private int ident;
+    private Integer color = null;
+
     public ViewCardOptional(@NonNull Context context) {
         super(context);
+        init(context);
     }
 
     public ViewCardOptional(@NonNull Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
+        init(context);
     }
 
     public ViewCardOptional(@NonNull Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
+        init(context);
+    }
+
+    private void init(Context context) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        cards = prefs.getBoolean("cards", true);
+        compact = prefs.getBoolean("compact", false);
+        padding = prefs.getInt("view_padding", compact ? 0 : 1);
+
+        margin = Helper.dp2pixels(context, (padding + 1) * 3);
+
+        setRadius(cards ? margin : 0);
+        setCardElevation(0);
+        setCardBackgroundColor(Color.TRANSPARENT);
     }
 
     @Override
     protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
-        boolean cards = prefs.getBoolean("cards", true);
-        boolean compact = prefs.getBoolean("compact", false);
         if (cards) {
-            int dp6 = Helper.dp2pixels(getContext(), 6);
-            int color = Helper.resolveColor(getContext(), R.attr.colorCardBackground);
-
-            FrameLayout.LayoutParams lparam = (FrameLayout.LayoutParams) getLayoutParams();
-            lparam.setMargins(dp6, compact ? 0 : dp6, dp6, dp6);
+            ViewGroup.MarginLayoutParams lparam = (ViewGroup.MarginLayoutParams) getLayoutParams();
+            lparam.setMargins(margin, margin, margin, margin);
             setLayoutParams(lparam);
+            setContentPadding(margin, margin, margin, margin);
+        }
 
-            setRadius(dp6);
-            setElevation(compact ? dp6 / 2f : dp6);
-            setCardBackgroundColor(color);
+        super.onAttachedToWindow();
+    }
 
-            getChildAt(0).setPadding(dp6, dp6, dp6, dp6);
-        } else {
-            setRadius(0);
-            setElevation(0);
-            setCardBackgroundColor(Color.TRANSPARENT);
+    @Override
+    public void setCardBackgroundColor(int color) {
+        if (this.color == null || this.color != color) {
+            this.color = color;
+
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
+            boolean cards = prefs.getBoolean("cards", true);
+            if (cards && color == Color.TRANSPARENT)
+                color = Helper.resolveColor(getContext(), R.attr.colorCardBackground);
+
+            super.setCardBackgroundColor(color);
         }
     }
 }

@@ -16,7 +16,7 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.database.Cursor;
@@ -41,15 +41,16 @@ public interface DaoContact {
             " ORDER BY times_contacted DESC, last_contacted DESC")
     LiveData<List<TupleContactEx>> liveContacts();
 
-    @Query("SELECT * FROM contact" +
+    @Query("SELECT email, name, avatar FROM contact" +
             " WHERE state <> " + EntityContact.STATE_IGNORE +
+            " AND (type = " + EntityContact.TYPE_TO +
+            " OR type = " + EntityContact.TYPE_FROM + ")" +
             " ORDER BY" +
             " CASE WHEN state = " + EntityContact.STATE_FAVORITE + " THEN 0 ELSE 1 END" +
             ", CASE WHEN avatar IS NULL THEN 1 ELSE 0 END" +
             ", times_contacted DESC" +
-            ", last_contacted DESC" +
-            " LIMIT :count")
-    List<EntityContact> getFrequentlyContacted(int count);
+            ", last_contacted DESC")
+    Cursor getFrequentlyContacted();
 
     @Query("SELECT *" +
             " FROM contact" +
@@ -58,17 +59,14 @@ public interface DaoContact {
             " AND email = :email COLLATE NOCASE")
     EntityContact getContact(long account, int type, String email);
 
-    @Query("SELECT id AS _id, name, email" +
+    @Query("SELECT *" +
             " FROM contact" +
             " WHERE (:account IS NULL OR account = :account)" +
             " AND (:type IS NULL OR type = :type)" +
             " AND (email LIKE :query COLLATE NOCASE OR name LIKE :query COLLATE NOCASE)" +
             " AND state <> " + EntityContact.STATE_IGNORE +
-            " GROUP BY name, email" +
-            " ORDER BY" +
-            " CASE WHEN name IS NULL THEN 1 ELSE 0 END" +
-            ", name COLLATE NOCASE, email COLLATE NOCASE")
-    Cursor searchContacts(Long account, Integer type, String query);
+            " GROUP BY name, email")
+    List<EntityContact> searchContacts(Long account, Integer type, String query);
 
     @Insert
     long insertContact(EntityContact contact);
@@ -79,15 +77,33 @@ public interface DaoContact {
     @Query("DELETE FROM contact WHERE id = :id")
     int deleteContact(long id);
 
-    @Query("UPDATE contact SET state = :state WHERE id = :id")
+    @Query("DELETE FROM contact" +
+            " WHERE account = :account" +
+            " AND type = :type")
+    int deleteContact(long account, int type);
+
+    @Query("DELETE FROM contact" +
+            " WHERE account = :account" +
+            " AND type = :type" +
+            " AND email = :email")
+    int deleteContact(long account, int type, String email);
+
+    @Query("UPDATE contact SET name = :name WHERE id = :id AND NOT (name IS :name)")
+    int setContactName(long id, String name);
+
+    @Query("UPDATE contact SET state = :state WHERE id = :id AND NOT (state IS :state)")
     int setContactState(long id, int state);
 
     @Query("DELETE FROM contact" +
             " WHERE last_contacted IS NOT NULL" +
             " AND last_contacted < :before" +
-            " AND state <> " + EntityContact.STATE_FAVORITE)
+            " AND state <> " + EntityContact.STATE_FAVORITE +
+            " AND (type = " + EntityContact.TYPE_TO +
+            " OR type = " + EntityContact.TYPE_FROM + ")")
     int deleteContacts(long before);
 
-    @Query("DELETE FROM contact")
+    @Query("DELETE FROM contact" +
+            " WHERE (type = " + EntityContact.TYPE_TO +
+            " OR type = " + EntityContact.TYPE_FROM + ")")
     int clearContacts();
 }

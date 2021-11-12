@@ -16,11 +16,12 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Typeface;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -31,6 +32,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ListUpdateCallback;
 import androidx.recyclerview.widget.RecyclerView;
@@ -40,22 +42,30 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 public class AdapterNavUnified extends RecyclerView.Adapter<AdapterNavUnified.ViewHolder> {
     private Context context;
     private LifecycleOwner owner;
     private LayoutInflater inflater;
 
-    private List<EntityFolderUnified> items = new ArrayList<>();
+    private boolean nav_count;
+    private boolean nav_unseen_drafts;
+    private int colorUnread;
+    private int textColorSecondary;
+
+    private boolean expanded = true;
+    private List<TupleFolderUnified> items = new ArrayList<>();
 
     private NumberFormat NF = NumberFormat.getNumberInstance();
 
     public class ViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener {
         private View view;
         private ImageView ivItem;
+        private ImageView ivBadge;
         private TextView tvItem;
         private TextView tvItemExtra;
-        private ImageView ivExternal;
+        private ImageView ivExtra;
         private ImageView ivWarning;
 
         ViewHolder(View itemView) {
@@ -63,9 +73,10 @@ public class AdapterNavUnified extends RecyclerView.Adapter<AdapterNavUnified.Vi
 
             view = itemView.findViewById(R.id.clItem);
             ivItem = itemView.findViewById(R.id.ivItem);
+            ivBadge = itemView.findViewById(R.id.ivBadge);
             tvItem = itemView.findViewById(R.id.tvItem);
             tvItemExtra = itemView.findViewById(R.id.tvItemExtra);
-            ivExternal = itemView.findViewById(R.id.ivExternal);
+            ivExtra = itemView.findViewById(R.id.ivExtra);
             ivWarning = itemView.findViewById(R.id.ivWarning);
         }
 
@@ -77,21 +88,45 @@ public class AdapterNavUnified extends RecyclerView.Adapter<AdapterNavUnified.Vi
             view.setOnClickListener(null);
         }
 
-        private void bindTo(EntityFolderUnified folder) {
-            ivItem.setImageResource(EntityFolder.getIcon(folder.type));
+        private void bindTo(TupleFolderUnified folder) {
+            if (EntityFolder.INBOX.equals(folder.type))
+                ivItem.setImageResource(R.drawable.twotone_all_inbox_24);
+            else if (EntityFolder.OUTBOX.equals(folder.type)) {
+                if ("syncing".equals(folder.sync_state))
+                    ivItem.setImageResource(R.drawable.twotone_compare_arrows_24);
+                else
+                    ivItem.setImageResource(EntityFolder.getIcon(folder.type));
+            } else
+                ivItem.setImageResource(EntityFolder.getIcon(folder.type));
 
-            if (folder.unseen == 0)
-                tvItem.setText(Helper.localizeFolderType(context, folder.type));
+            if (folder.color != null && folder.colorCount == 1)
+                ivItem.setColorFilter(folder.color);
+            else
+                ivItem.clearColorFilter();
+
+            long count;
+            if (EntityFolder.OUTBOX.equals(folder.type) ||
+                    (!nav_unseen_drafts && EntityFolder.DRAFTS.equals(folder.type)))
+                count = folder.messages;
+            else
+                count = folder.unseen;
+
+            ivBadge.setVisibility(count == 0 || expanded ? View.GONE : View.VISIBLE);
+
+            if (count == 0)
+                tvItem.setText(EntityFolder.localizeType(context, folder.type));
             else
                 tvItem.setText(context.getString(R.string.title_name_count,
-                        Helper.localizeFolderType(context, folder.type), NF.format(folder.unseen)));
+                        EntityFolder.localizeType(context, folder.type), NF.format(count)));
 
-            tvItem.setTextColor(Helper.resolveColor(context,
-                    folder.unseen == 0 ? android.R.attr.textColorSecondary : android.R.attr.textColorPrimary));
-            tvItem.setTypeface(folder.unseen == 0 ? Typeface.DEFAULT : Typeface.DEFAULT_BOLD);
+            tvItem.setTextColor(count == 0 ? textColorSecondary : colorUnread);
+            tvItem.setTypeface(count == 0 ? Typeface.DEFAULT : Typeface.DEFAULT_BOLD);
+            tvItem.setVisibility(expanded ? View.VISIBLE : View.GONE);
 
-            tvItemExtra.setVisibility(View.GONE);
-            ivExternal.setVisibility(View.GONE);
+            tvItemExtra.setText(NF.format(folder.messages));
+            tvItemExtra.setVisibility(nav_count && expanded ? View.VISIBLE : View.GONE);
+
+            ivExtra.setVisibility(View.GONE);
             ivWarning.setVisibility(View.GONE);
         }
 
@@ -101,14 +136,17 @@ public class AdapterNavUnified extends RecyclerView.Adapter<AdapterNavUnified.Vi
             if (pos == RecyclerView.NO_POSITION)
                 return;
 
-            EntityFolderUnified folder = items.get(pos);
+            TupleFolderUnified folder = items.get(pos);
             if (folder == null || folder.type == null)
                 return;
 
             LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(context);
-            lbm.sendBroadcast(
-                    new Intent(ActivityView.ACTION_VIEW_MESSAGES)
-                            .putExtra("type", folder.type));
+            if (EntityFolder.OUTBOX.equals(folder.type))
+                lbm.sendBroadcast(new Intent(ActivityView.ACTION_VIEW_OUTBOX));
+            else
+                lbm.sendBroadcast(
+                        new Intent(ActivityView.ACTION_VIEW_MESSAGES)
+                                .putExtra("type", folder.type));
         }
     }
 
@@ -116,14 +154,22 @@ public class AdapterNavUnified extends RecyclerView.Adapter<AdapterNavUnified.Vi
         this.context = context;
         this.owner = owner;
         this.inflater = LayoutInflater.from(context);
+
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        this.nav_count = prefs.getBoolean("nav_count", false);
+        this.nav_unseen_drafts = prefs.getBoolean("nav_unseen_drafts", false);
+        boolean highlight_unread = prefs.getBoolean("highlight_unread", true);
+        int colorHighlight = prefs.getInt("highlight_color", Helper.resolveColor(context, R.attr.colorUnreadHighlight));
+        this.colorUnread = (highlight_unread ? colorHighlight : Helper.resolveColor(context, R.attr.colorUnread));
+        this.textColorSecondary = Helper.resolveColor(context, android.R.attr.textColorSecondary);
     }
 
-    public void set(@NonNull List<EntityFolderUnified> types) {
+    public void set(@NonNull List<TupleFolderUnified> types, boolean expanded) {
         Log.i("Set nav unified=" + types.size());
 
-        Collections.sort(types, new Comparator<EntityFolderUnified>() {
+        Collections.sort(types, new Comparator<TupleFolderUnified>() {
             @Override
-            public int compare(EntityFolderUnified f1, EntityFolderUnified f2) {
+            public int compare(TupleFolderUnified f1, TupleFolderUnified f2) {
                 int i1 = EntityFolder.FOLDER_SORT_ORDER.indexOf(f1.type);
                 int i2 = EntityFolder.FOLDER_SORT_ORDER.indexOf(f2.type);
                 return Integer.compare(i1, i2);
@@ -132,37 +178,43 @@ public class AdapterNavUnified extends RecyclerView.Adapter<AdapterNavUnified.Vi
 
         DiffUtil.DiffResult diff = DiffUtil.calculateDiff(new DiffCallback(items, types), false);
 
-        items = types;
+        this.expanded = expanded;
+        this.items = types;
 
         diff.dispatchUpdatesTo(new ListUpdateCallback() {
             @Override
             public void onInserted(int position, int count) {
-                Log.i("Inserted @" + position + " #" + count);
+                Log.d("Inserted @" + position + " #" + count);
             }
 
             @Override
             public void onRemoved(int position, int count) {
-                Log.i("Removed @" + position + " #" + count);
+                Log.d("Removed @" + position + " #" + count);
             }
 
             @Override
             public void onMoved(int fromPosition, int toPosition) {
-                Log.i("Moved " + fromPosition + ">" + toPosition);
+                Log.d("Moved " + fromPosition + ">" + toPosition);
             }
 
             @Override
             public void onChanged(int position, int count, Object payload) {
-                Log.i("Changed @" + position + " #" + count);
+                Log.d("Changed @" + position + " #" + count);
             }
         });
         diff.dispatchUpdatesTo(this);
     }
 
-    private class DiffCallback extends DiffUtil.Callback {
-        private List<EntityFolderUnified> prev = new ArrayList<>();
-        private List<EntityFolderUnified> next = new ArrayList<>();
+    public void setExpanded(boolean expanded) {
+        this.expanded = expanded;
+        notifyDataSetChanged();
+    }
 
-        DiffCallback(List<EntityFolderUnified> prev, List<EntityFolderUnified> next) {
+    private static class DiffCallback extends DiffUtil.Callback {
+        private List<TupleFolderUnified> prev = new ArrayList<>();
+        private List<TupleFolderUnified> next = new ArrayList<>();
+
+        DiffCallback(List<TupleFolderUnified> prev, List<TupleFolderUnified> next) {
             this.prev.addAll(prev);
             this.next.addAll(next);
         }
@@ -179,16 +231,16 @@ public class AdapterNavUnified extends RecyclerView.Adapter<AdapterNavUnified.Vi
 
         @Override
         public boolean areItemsTheSame(int oldItemPosition, int newItemPosition) {
-            EntityFolderUnified f1 = prev.get(oldItemPosition);
-            EntityFolderUnified f2 = next.get(newItemPosition);
+            TupleFolderUnified f1 = prev.get(oldItemPosition);
+            TupleFolderUnified f2 = next.get(newItemPosition);
             return f1.type.equals(f2.type);
         }
 
         @Override
         public boolean areContentsTheSame(int oldItemPosition, int newItemPosition) {
-            EntityFolderUnified f1 = prev.get(oldItemPosition);
-            EntityFolderUnified f2 = next.get(newItemPosition);
-            return (f1.unseen == f2.unseen);
+            TupleFolderUnified f1 = prev.get(oldItemPosition);
+            TupleFolderUnified f2 = next.get(newItemPosition);
+            return f1.equals(f2);
         }
     }
 
@@ -206,7 +258,7 @@ public class AdapterNavUnified extends RecyclerView.Adapter<AdapterNavUnified.Vi
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         holder.unwire();
-        EntityFolderUnified folder = items.get(position);
+        TupleFolderUnified folder = items.get(position);
         holder.bindTo(folder);
         holder.wire();
     }

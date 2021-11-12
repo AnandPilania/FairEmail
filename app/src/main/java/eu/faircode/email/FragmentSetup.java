@@ -16,23 +16,32 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.Manifest;
+import android.app.ActivityManager;
 import android.app.Dialog;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.Resources;
+import android.graphics.Paint;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.PowerManager;
 import android.provider.Settings;
+import android.text.SpannableString;
+import android.text.style.RelativeSizeSpan;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -42,8 +51,12 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.PopupMenu;
+import androidx.cardview.widget.CardView;
 import androidx.constraintlayout.widget.Group;
-import androidx.core.content.ContextCompat;
+import androidx.core.view.MenuCompat;
+import androidx.fragment.app.FragmentActivity;
+import androidx.lifecycle.Lifecycle;
 import androidx.lifecycle.Observer;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.preference.PreferenceManager;
@@ -53,88 +66,152 @@ import java.util.List;
 public class FragmentSetup extends FragmentBase {
     private ViewGroup view;
 
+    private TextView tvPrivacy;
+    private TextView tvSupport;
+
     private ImageButton ibWelcome;
+    private Group grpWelcome;
 
-    private Button btnHelp;
+    private TextView tvNoInternet;
+    private ImageButton ibHelp;
     private Button btnQuick;
+    private TextView tvQuickNew;
 
-    private TextView tvAccountDone;
+    private ImageButton ibManual;
+    private TextView tvManual;
+    private CardView cardManual;
+
     private Button btnAccount;
-    private TextView tvNoPrimaryDrafts;
 
-    private TextView tvIdentityDone;
     private Button btnIdentity;
-    private TextView tvNoIdentities;
+    private TextView tvExchangeSupport;
+    private TextView tvIdentityWhat;
+    private TextView tvFree;
+    private TextView tvNoComposable;
 
     private TextView tvPermissionsDone;
     private Button btnPermissions;
+    private TextView tvImportContacts;
 
     private TextView tvDozeDone;
     private Button btnDoze;
-    private Button btnBattery;
+    private TextView tvDoze12;
+    private ImageButton ibDoze;
+
+    private Button btnInexactAlarms;
+    private Button btnBackgroundRestricted;
+    private Button btnDataSaver;
+    private TextView tvStamina;
+
+    private TextView tvBatteryUsage;
+    private TextView tvSyncStopped;
 
     private Button btnInbox;
 
-    private Group grpWelcome;
+    private Group grpInexactAlarms;
+    private Group grpBackgroundRestricted;
+    private Group grpDataSaver;
 
     private int textColorPrimary;
     private int colorWarning;
     private Drawable check;
 
-    private static final String[] permissions = new String[]{
-            Manifest.permission.READ_CONTACTS
-    };
+    private boolean manual = false;
 
     @Override
     @Nullable
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         setSubtitle(R.string.title_setup);
 
+        if (savedInstanceState != null)
+            manual = savedInstanceState.getBoolean("fair:manual");
+
         textColorPrimary = Helper.resolveColor(getContext(), android.R.attr.textColorPrimary);
         colorWarning = Helper.resolveColor(getContext(), R.attr.colorWarning);
-        check = getResources().getDrawable(R.drawable.baseline_check_24, getContext().getTheme());
+        check = getContext().getDrawable(R.drawable.twotone_check_24);
 
         view = (ViewGroup) inflater.inflate(R.layout.fragment_setup, container, false);
 
         // Get controls
+
+        tvPrivacy = view.findViewById(R.id.tvPrivacy);
+        tvSupport = view.findViewById(R.id.tvSupport);
         ibWelcome = view.findViewById(R.id.ibWelcome);
+        grpWelcome = view.findViewById(R.id.grpWelcome);
 
-        btnHelp = view.findViewById(R.id.btnHelp);
+        tvNoInternet = view.findViewById(R.id.tvNoInternet);
+        ibHelp = view.findViewById(R.id.ibHelp);
         btnQuick = view.findViewById(R.id.btnQuick);
+        tvQuickNew = view.findViewById(R.id.tvQuickNew);
 
-        tvAccountDone = view.findViewById(R.id.tvAccountDone);
+        ibManual = view.findViewById(R.id.ibManual);
+        tvManual = view.findViewById(R.id.tvManual);
+        cardManual = view.findViewById(R.id.cardManual);
+
         btnAccount = view.findViewById(R.id.btnAccount);
-        tvNoPrimaryDrafts = view.findViewById(R.id.tvNoPrimaryDrafts);
 
-        tvIdentityDone = view.findViewById(R.id.tvIdentityDone);
         btnIdentity = view.findViewById(R.id.btnIdentity);
-        tvNoIdentities = view.findViewById(R.id.tvNoIdentities);
+        tvExchangeSupport = view.findViewById(R.id.tvExchangeSupport);
+        tvIdentityWhat = view.findViewById(R.id.tvIdentityWhat);
+        tvFree = view.findViewById(R.id.tvFree);
+        tvNoComposable = view.findViewById(R.id.tvNoComposable);
 
         tvPermissionsDone = view.findViewById(R.id.tvPermissionsDone);
         btnPermissions = view.findViewById(R.id.btnPermissions);
+        tvImportContacts = view.findViewById(R.id.tvImportContacts);
 
         tvDozeDone = view.findViewById(R.id.tvDozeDone);
         btnDoze = view.findViewById(R.id.btnDoze);
-        btnBattery = view.findViewById(R.id.btnBattery);
+        tvDoze12 = view.findViewById(R.id.tvDoze12);
+        ibDoze = view.findViewById(R.id.ibDoze);
+
+        btnInexactAlarms = view.findViewById(R.id.btnInexactAlarms);
+        btnBackgroundRestricted = view.findViewById(R.id.btnBackgroundRestricted);
+        btnDataSaver = view.findViewById(R.id.btnDataSaver);
+        tvStamina = view.findViewById(R.id.tvStamina);
+
+        tvBatteryUsage = view.findViewById(R.id.tvBatteryUsage);
+        tvSyncStopped = view.findViewById(R.id.tvSyncStopped);
 
         btnInbox = view.findViewById(R.id.btnInbox);
 
-        grpWelcome = view.findViewById(R.id.grpWelcome);
-
-        PackageManager pm = getContext().getPackageManager();
-        final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
+        grpInexactAlarms = view.findViewById(R.id.grpInexactAlarms);
+        grpBackgroundRestricted = view.findViewById(R.id.grpBackgroundRestricted);
+        grpDataSaver = view.findViewById(R.id.grpDataSaver);
 
         // Wire controls
+
+        tvPrivacy.setPaintFlags(tvPrivacy.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvPrivacy.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.view(v.getContext(), Helper.getPrivacyUri(v.getContext()), false);
+            }
+        });
+
+        tvSupport.setPaintFlags(tvPrivacy.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvSupport.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent view = new Intent(Intent.ACTION_VIEW)
+                        .setData(Helper.getSupportUri(v.getContext()));
+                v.getContext().startActivity(view);
+            }
+        });
+
+        updateWelcome();
 
         ibWelcome.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                prefs.edit().putBoolean("welcome", false).apply();
-                grpWelcome.setVisibility(View.GONE);
+                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(view.getContext());
+                boolean setup_welcome = !prefs.getBoolean("setup_welcome", true);
+                prefs.edit().putBoolean("setup_welcome", setup_welcome).apply();
+                updateWelcome();
             }
         });
 
-        btnHelp.setOnClickListener(new View.OnClickListener() {
+        ibHelp.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 Bundle args = new Bundle();
@@ -148,10 +225,157 @@ public class FragmentSetup extends FragmentBase {
         btnQuick.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(getContext());
-                lbm.sendBroadcast(new Intent(ActivitySetup.ACTION_QUICK_SETUP));
+                final Context context = getContext();
+                PopupMenuLifecycle popupMenu = new PopupMenuLifecycle(context, getViewLifecycleOwner(), btnQuick);
+                Menu menu = popupMenu.getMenu();
+
+                Resources res = context.getResources();
+                String pkg = context.getPackageName();
+
+                int order = 1;
+                String gmail = getString(R.string.title_setup_oauth, getString(R.string.title_setup_gmail));
+                MenuItem item = menu.add(Menu.FIRST, R.string.title_setup_gmail, order++, gmail);
+                int resid = res.getIdentifier("provider_gmail", "drawable", pkg);
+                if (resid != 0)
+                    item.setIcon(resid);
+
+                for (EmailProvider provider : EmailProvider.loadProfiles(context))
+                    if (provider.oauth != null &&
+                            (provider.oauth.enabled || BuildConfig.DEBUG)) {
+                        item = menu
+                                .add(Menu.FIRST, -1, order++, getString(R.string.title_setup_oauth, provider.description))
+                                .setIntent(new Intent(ActivitySetup.ACTION_QUICK_OAUTH)
+                                        .putExtra("id", provider.id)
+                                        .putExtra("name", provider.description)
+                                        .putExtra("privacy", provider.oauth.privacy)
+                                        .putExtra("askAccount", provider.oauth.askAccount));
+                        resid = res.getIdentifier("provider_" + provider.id, "drawable", pkg);
+                        if (resid != 0)
+                            item.setIcon(resid);
+                    }
+
+                menu.add(Menu.NONE, R.string.title_setup_other, order++, R.string.title_setup_other)
+                        .setIcon(R.drawable.twotone_auto_fix_high_24);
+
+                menu.add(Menu.NONE, R.string.title_setup_classic, order++, R.string.title_setup_classic)
+                        .setIcon(R.drawable.twotone_settings_24)
+                        .setVisible(false);
+
+                SpannableString ss = new SpannableString(getString(R.string.title_setup_pop3));
+                ss.setSpan(new RelativeSizeSpan(0.9f), 0, ss.length(), 0);
+                menu.add(Menu.NONE, R.string.title_setup_pop3, order++, ss);
+
+                menu.add(Menu.NONE, R.string.menu_faq, order++, R.string.menu_faq)
+                        .setIcon(R.drawable.twotone_support_24)
+                        .setVisible(false);
+
+                popupMenu.insertIcons(context);
+
+                MenuCompat.setGroupDividerEnabled(menu, true);
+
+                popupMenu.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
+                    @Override
+                    public boolean onMenuItemClick(MenuItem item) {
+                        LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(getContext());
+
+                        int itemId = item.getItemId();
+                        if (itemId == R.string.title_setup_gmail) {
+                            if (Helper.hasValidFingerprint(getContext()) || BuildConfig.DEBUG)
+                                lbm.sendBroadcast(new Intent(ActivitySetup.ACTION_QUICK_GMAIL));
+                            else
+                                new AlertDialog.Builder(getContext())
+                                        .setIcon(R.drawable.twotone_info_24)
+                                        .setTitle(item.getTitle())
+                                        .setMessage(R.string.title_setup_gmail_support)
+                                        .setNeutralButton(R.string.title_info, new DialogInterface.OnClickListener() {
+                                            @Override
+                                            public void onClick(DialogInterface dialog, int which) {
+                                                Helper.viewFAQ(getContext(), 6);
+                                            }
+                                        })
+                                        .setNegativeButton(android.R.string.cancel, null)
+                                        .show();
+                            return true;
+                        } else if (itemId == R.string.title_setup_other) {
+                            lbm.sendBroadcast(new Intent(ActivitySetup.ACTION_QUICK_SETUP));
+                            return true;
+                        } else if (itemId == R.string.title_setup_classic) {
+                            ibManual.setPressed(true);
+                            ibManual.setPressed(false);
+                            manual = true;
+                            updateManual();
+                            view.post(new Runnable() {
+                                @Override
+                                public void run() {
+                                    try {
+                                        scrollTo(R.id.ibManual, 0);
+                                    } catch (Throwable ex) {
+                                        Log.e(ex);
+                                    }
+                                }
+                            });
+                            return true;
+                        } else if (itemId == R.string.title_setup_pop3) {
+                            lbm.sendBroadcast(new Intent(ActivitySetup.ACTION_QUICK_POP3));
+                            return true;
+                        } else if (itemId == R.string.menu_faq) {
+                            Helper.view(getContext(), Helper.getSupportUri(getContext()), false);
+                            return true;
+                        }
+
+                        if (item.getIntent() == null)
+                            return false;
+                        else {
+                            if (Helper.hasValidFingerprint(getContext()) || BuildConfig.DEBUG)
+                                lbm.sendBroadcast(item.getIntent());
+                            else
+                                new AlertDialog.Builder(getContext())
+                                        .setIcon(R.drawable.twotone_info_24)
+                                        .setTitle(item.getTitle())
+                                        .setMessage(R.string.title_setup_oauth_permission)
+                                        .setNeutralButton(R.string.title_info, new DialogInterface.OnClickListener() {
+                                            @Override
+                                            public void onClick(DialogInterface dialog, int which) {
+                                                Helper.viewFAQ(getContext(), 147);
+                                            }
+                                        })
+                                        .setNegativeButton(android.R.string.cancel, null)
+                                        .show();
+                            return true;
+                        }
+                    }
+                });
+
+                popupMenu.show();
             }
         });
+
+        tvQuickNew.setPaintFlags(tvQuickNew.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvQuickNew.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 112);
+            }
+        });
+
+        ibManual.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                manual = !manual;
+                updateManual();
+            }
+        });
+
+        tvManual.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                ibManual.setPressed(true);
+                ibManual.setPressed(false);
+                ibManual.performClick();
+            }
+        });
+
+        updateManual();
 
         btnAccount.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -169,27 +393,146 @@ public class FragmentSetup extends FragmentBase {
             }
         });
 
+        tvExchangeSupport.setPaintFlags(tvExchangeSupport.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvExchangeSupport.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 8);
+            }
+        });
+
+        tvIdentityWhat.setPaintFlags(tvIdentityWhat.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvIdentityWhat.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 9);
+            }
+        });
+
+        tvFree.setPaintFlags(tvFree.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvFree.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 19);
+            }
+        });
+
         btnPermissions.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                btnPermissions.setEnabled(false);
-                requestPermissions(permissions, ActivitySetup.REQUEST_PERMISSION);
+                try {
+                    btnPermissions.setEnabled(false);
+                    String permission = Manifest.permission.READ_CONTACTS;
+                    requestPermissions(new String[]{permission}, ActivitySetup.REQUEST_PERMISSION);
+                } catch (Throwable ex) {
+                    Log.unexpectedError(getParentFragmentManager(), ex);
+                    /*
+                        android.content.ActivityNotFoundException: No Activity found to handle Intent { act=android.content.pm.action.REQUEST_PERMISSIONS pkg=com.google.android.packageinstaller (has extras) }
+                          at android.app.Instrumentation.checkStartActivityResult(Instrumentation.java:1805)
+                          at android.app.Instrumentation.execStartActivity(Instrumentation.java:1634)
+                          at android.app.Activity.startActivityForResult(Activity.java:4583)
+                          at android.app.Activity.requestPermissions(Activity.java:3850)
+                          at androidx.core.app.ActivityCompat.requestPermissions(SourceFile:11)
+                          at androidx.activity.ComponentActivity$2.onLaunch(SourceFile:13)
+                          at androidx.activity.result.ActivityResultRegistry$3.launch(SourceFile:2)
+                          at androidx.activity.result.ActivityResultLauncher.launch(SourceFile:1)
+                          at androidx.fragment.app.FragmentManager.launchRequestPermissions(SourceFile:4)
+                          at androidx.fragment.app.Fragment.requestPermissions(SourceFile:2)
+                          at eu.faircode.email.FragmentSetup$11.onClick(SourceFile:2)
+                     */
+                }
+            }
+        });
+
+        tvImportContacts.setPaintFlags(tvImportContacts.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvImportContacts.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 172, true);
             }
         });
 
         btnDoze.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                new FragmentDialogDoze().show(getFragmentManager(), "setup:doze");
+                new FragmentDialogDoze().show(getParentFragmentManager(), "setup:doze");
             }
         });
 
-        btnBattery.setOnClickListener(new View.OnClickListener() {
+        ibDoze.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onClick(View view) {
-                Helper.viewFAQ(getContext(), 39);
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 175, true);
             }
         });
+
+        tvStamina.setPaintFlags(tvStamina.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvStamina.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.view(v.getContext(), Uri.parse(Helper.DONTKILL_URI + "sony"), true);
+            }
+        });
+
+        tvBatteryUsage.setPaintFlags(tvBatteryUsage.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvBatteryUsage.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 39);
+            }
+        });
+
+        tvSyncStopped.setPaintFlags(tvSyncStopped.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvSyncStopped.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 16);
+            }
+        });
+
+        PackageManager pm = getContext().getPackageManager();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            final Intent settings = new Intent(
+                    Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                    Uri.parse("package:" + BuildConfig.APPLICATION_ID));
+
+            btnInexactAlarms.setEnabled(settings.resolveActivity(pm) != null); // system whitelisted
+            btnInexactAlarms.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    startActivity(settings);
+                }
+            });
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            final Intent settings = new Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + BuildConfig.APPLICATION_ID));
+
+            btnBackgroundRestricted.setEnabled(settings.resolveActivity(pm) != null); // system whitelisted
+            btnBackgroundRestricted.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    startActivity(settings);
+                }
+            });
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            final Intent settings = new Intent(
+                    Settings.ACTION_IGNORE_BACKGROUND_DATA_RESTRICTIONS_SETTINGS,
+                    Uri.parse("package:" + BuildConfig.APPLICATION_ID));
+
+            btnDataSaver.setEnabled(settings.resolveActivity(pm) != null); // system whitelisted
+            btnDataSaver.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    startActivity(settings);
+                }
+            });
+        }
 
         btnInbox.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -199,14 +542,11 @@ public class FragmentSetup extends FragmentBase {
         });
 
         // Initialize
-        tvAccountDone.setText(null);
-        tvAccountDone.setCompoundDrawables(null, null, null, null);
-        tvNoPrimaryDrafts.setVisibility(View.GONE);
+        FragmentDialogTheme.setBackground(getContext(), view, false);
 
-        tvIdentityDone.setText(null);
-        tvIdentityDone.setCompoundDrawables(null, null, null, null);
+        tvNoInternet.setVisibility(View.GONE);
         btnIdentity.setEnabled(false);
-        tvNoIdentities.setVisibility(View.GONE);
+        tvNoComposable.setVisibility(View.GONE);
 
         tvPermissionsDone.setText(null);
         tvPermissionsDone.setCompoundDrawables(null, null, null, null);
@@ -214,17 +554,32 @@ public class FragmentSetup extends FragmentBase {
         tvDozeDone.setText(null);
         tvDozeDone.setCompoundDrawables(null, null, null, null);
         btnDoze.setEnabled(false);
+        tvDoze12.setVisibility(View.GONE);
 
         btnInbox.setEnabled(false);
 
-        boolean welcome = prefs.getBoolean("welcome", true);
-        grpWelcome.setVisibility(welcome ? View.VISIBLE : View.GONE);
+        grpInexactAlarms.setVisibility(View.GONE);
+        grpBackgroundRestricted.setVisibility(View.GONE);
+        grpDataSaver.setVisibility(View.GONE);
+        tvStamina.setVisibility(View.GONE);
 
-        int[] grantResults = new int[permissions.length];
-        for (int i = 0; i < permissions.length; i++)
-            grantResults[i] = ContextCompat.checkSelfPermission(getActivity(), permissions[i]);
+        setContactsPermission(hasPermission(Manifest.permission.READ_CONTACTS));
 
-        checkPermissions(permissions, grantResults, true);
+        return view;
+    }
+
+    @Override
+    public void onSaveInstanceState(Bundle outState) {
+        outState.putBoolean("fair:manual", manual);
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override
+    public void onActivityCreated(@Nullable Bundle savedInstanceState) {
+        super.onActivityCreated(savedInstanceState);
+
+        final DB db = DB.getInstance(getContext());
+        final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
 
         // Create outbox
         new SimpleTask<Void>() {
@@ -236,12 +591,7 @@ public class FragmentSetup extends FragmentBase {
 
                     EntityFolder outbox = db.folder().getOutbox();
                     if (outbox == null) {
-                        outbox = new EntityFolder();
-                        outbox.name = "OUTBOX";
-                        outbox.type = EntityFolder.OUTBOX;
-                        outbox.synchronize = false;
-                        outbox.sync_days = 0;
-                        outbox.keep_days = 0;
+                        outbox = EntityFolder.getOutbox();
                         outbox.id = db.folder().insertFolder(outbox);
                     }
 
@@ -255,19 +605,9 @@ public class FragmentSetup extends FragmentBase {
 
             @Override
             protected void onException(Bundle args, Throwable ex) {
-                Helper.unexpectedError(getFragmentManager(), ex);
+                Log.unexpectedError(getParentFragmentManager(), ex);
             }
         }.execute(this, new Bundle(), "outbox:create");
-
-        return view;
-    }
-
-    @Override
-    public void onActivityCreated(@Nullable Bundle savedInstanceState) {
-        super.onActivityCreated(savedInstanceState);
-
-        final DB db = DB.getInstance(getContext());
-        final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
 
         db.account().liveSynchronizingAccounts().observe(getViewLifecycleOwner(), new Observer<List<EntityAccount>>() {
             private boolean done = false;
@@ -276,97 +616,176 @@ public class FragmentSetup extends FragmentBase {
             public void onChanged(@Nullable List<EntityAccount> accounts) {
                 done = (accounts != null && accounts.size() > 0);
 
-                getActivity().invalidateOptionsMenu();
-
-                tvAccountDone.setText(done ? R.string.title_setup_done : R.string.title_setup_to_do);
-                tvAccountDone.setTextColor(done ? textColorPrimary : colorWarning);
-                tvAccountDone.setCompoundDrawablesWithIntrinsicBounds(done ? check : null, null, null, null);
-
                 btnIdentity.setEnabled(done);
                 btnInbox.setEnabled(done);
+                btnInbox.setTypeface(done ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
 
                 prefs.edit().putBoolean("has_accounts", done).apply();
             }
         });
 
-        db.folder().livePrimaryDrafts().observe(getViewLifecycleOwner(), new Observer<EntityFolder>() {
-            @Override
-            public void onChanged(EntityFolder draft) {
-                tvNoPrimaryDrafts.setVisibility(draft == null ? View.VISIBLE : View.GONE);
-            }
-        });
-
-        db.identity().liveIdentities(true).observe(getViewLifecycleOwner(), new Observer<List<TupleIdentityEx>>() {
+        db.identity().liveComposableIdentities().observe(getViewLifecycleOwner(), new Observer<List<TupleIdentityEx>>() {
             @Override
             public void onChanged(@Nullable List<TupleIdentityEx> identities) {
-                boolean done = (identities != null && identities.size() > 0);
-                tvIdentityDone.setText(done ? R.string.title_setup_done : R.string.title_setup_to_do);
-                tvIdentityDone.setTextColor(done ? textColorPrimary : colorWarning);
-                tvIdentityDone.setCompoundDrawablesWithIntrinsicBounds(done ? check : null, null, null, null);
-                tvNoIdentities.setVisibility(done ? View.GONE : View.VISIBLE);
+                Bundle args = new Bundle();
+
+                new SimpleTask<List<EntityAccount>>() {
+                    @Override
+                    protected List<EntityAccount> onExecute(Context context, Bundle args) throws Throwable {
+                        DB db = DB.getInstance(context);
+                        return db.account().getSynchronizingAccounts();
+                    }
+
+                    @Override
+                    protected void onExecuted(Bundle args, List<EntityAccount> accounts) {
+                        boolean done = ((accounts == null || accounts.size() == 0) ||
+                                (identities != null && identities.size() > 0));
+                        tvNoComposable.setVisibility(done ? View.GONE : View.VISIBLE);
+                    }
+
+                    @Override
+                    protected void onException(Bundle args, Throwable ex) {
+                        // Ignored
+                    }
+                }.execute(FragmentSetup.this, args, "setup:accounts");
             }
         });
-
-        // Backward compatibility
-        PackageManager pm = getContext().getPackageManager();
-        pm.setComponentEnabledSetting(
-                new ComponentName(getContext(), ActivitySearch.class),
-                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                PackageManager.DONT_KILL_APP);
     }
 
     @Override
     public void onResume() {
         super.onResume();
 
+        updateManual();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            ConnectivityManager cm = (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+            cm.registerDefaultNetworkCallback(networkCallback);
+        }
+
         // Doze
-        boolean ignoring = true;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        Boolean ignoring = Helper.isIgnoringOptimizations(getContext());
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M)
+            btnDoze.setEnabled(false);
+        else {
             Intent intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
-            if (intent.resolveActivity(getContext().getPackageManager()) != null) {
-                PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
-                ignoring = (pm != null && pm.isIgnoringBatteryOptimizations(BuildConfig.APPLICATION_ID));
+            PackageManager pm = getContext().getPackageManager();
+            if (intent.resolveActivity(pm) == null)
+                btnDoze.setEnabled(false);
+            else
+                btnDoze.setEnabled((ignoring != null && !ignoring) || BuildConfig.DEBUG);
+        }
+
+        tvDozeDone.setText(ignoring == null || ignoring ? R.string.title_setup_done : R.string.title_setup_to_do);
+        tvDozeDone.setTextColor(ignoring == null || ignoring ? textColorPrimary : colorWarning);
+        tvDozeDone.setTypeface(null, ignoring == null || ignoring ? Typeface.NORMAL : Typeface.BOLD);
+        tvDozeDone.setCompoundDrawablesWithIntrinsicBounds(ignoring == null || ignoring ? check : null, null, null, null);
+        tvDoze12.setVisibility(Helper.isOptimizing12(getContext()) ? View.VISIBLE : View.GONE);
+
+        grpInexactAlarms.setVisibility(
+                !AlarmManagerCompatEx.canScheduleExactAlarms(getContext()) || BuildConfig.DEBUG
+                        ? View.VISIBLE : View.GONE);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            ActivityManager am =
+                    (ActivityManager) getContext().getSystemService(Context.ACTIVITY_SERVICE);
+            grpBackgroundRestricted.setVisibility(am.isBackgroundRestricted()
+                    ? View.VISIBLE : View.GONE);
+        }
+
+        grpDataSaver.setVisibility(ConnectionHelper.isDataSaving(getContext())
+                ? View.VISIBLE : View.GONE);
+
+        tvStamina.setVisibility(Helper.isStaminaEnabled(getContext())
+                ? View.VISIBLE : View.GONE);
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            ConnectivityManager cm = (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+            cm.unregisterNetworkCallback(networkCallback);
+        }
+    }
+
+    private void updateWelcome() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
+        boolean setup_welcome = prefs.getBoolean("setup_welcome", true);
+        ibWelcome.setImageLevel(setup_welcome ? 0 /* less */ : 1 /* more */);
+        grpWelcome.setVisibility(setup_welcome ? View.VISIBLE : View.GONE);
+    }
+
+    private void updateManual() {
+        FragmentActivity activity = getActivity();
+        if (activity != null) {
+            Intent intent = activity.getIntent();
+            if (intent.hasExtra("manual")) {
+                manual = intent.getBooleanExtra("manual", false);
+                intent.removeExtra("manual");
+                activity.setIntent(intent);
             }
         }
 
-        btnDoze.setEnabled(!ignoring);
-
-        // https://issuetracker.google.com/issues/37070074
-        //ignoring = (ignoring || Build.VERSION.SDK_INT != Build.VERSION_CODES.M);
-
-        tvDozeDone.setText(ignoring ? R.string.title_setup_done : R.string.title_setup_to_do);
-        tvDozeDone.setTextColor(ignoring ? textColorPrimary : colorWarning);
-        tvDozeDone.setCompoundDrawablesWithIntrinsicBounds(ignoring ? check : null, null, null, null);
+        ibManual.setImageLevel(manual ? 0 /* less */ : 1 /* more */);
+        cardManual.setVisibility(manual ? View.VISIBLE : View.GONE);
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        if (requestCode == ActivitySetup.REQUEST_PERMISSION)
-            checkPermissions(permissions, grantResults, false);
+        for (int i = 0; i < permissions.length; i++)
+            if (Manifest.permission.READ_CONTACTS.equals(permissions[i]))
+                setContactsPermission(grantResults[i] == PackageManager.PERMISSION_GRANTED);
     }
 
-    private void checkPermissions(String[] permissions, @NonNull int[] grantResults, boolean init) {
-        boolean has = (grantResults.length > 0);
-        for (int result : grantResults)
-            if (result != PackageManager.PERMISSION_GRANTED) {
-                has = false;
-                break;
-            }
-
-        if (has)
+    private void setContactsPermission(boolean granted) {
+        if (granted)
             ContactInfo.init(getContext());
 
-        tvPermissionsDone.setText(has ? R.string.title_setup_done : R.string.title_setup_to_do);
-        tvPermissionsDone.setTextColor(has ? textColorPrimary : colorWarning);
-        tvPermissionsDone.setCompoundDrawablesWithIntrinsicBounds(has ? check : null, null, null, null);
-        btnPermissions.setEnabled(!has);
+        tvPermissionsDone.setText(granted ? R.string.title_setup_done : R.string.title_setup_to_do);
+        tvPermissionsDone.setTextColor(granted ? textColorPrimary : colorWarning);
+        tvPermissionsDone.setTypeface(null, granted ? Typeface.NORMAL : Typeface.BOLD);
+        tvPermissionsDone.setCompoundDrawablesWithIntrinsicBounds(granted ? check : null, null, null, null);
+        btnPermissions.setEnabled(!granted);
     }
 
-    public static class FragmentDialogDoze extends FragmentDialogEx {
+    private ConnectivityManager.NetworkCallback networkCallback = new ConnectivityManager.NetworkCallback() {
+        @Override
+        public void onAvailable(Network network) {
+            view.post(new Runnable() {
+                @Override
+                public void run() {
+                    updateInternet(true);
+                }
+            });
+        }
+
+        @Override
+        public void onLost(@NonNull Network network) {
+            view.post(new Runnable() {
+                @Override
+                public void run() {
+                    updateInternet(false);
+                }
+            });
+        }
+
+        private void updateInternet(boolean available) {
+            if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
+                return;
+            tvNoInternet.setVisibility(available ? View.GONE : View.VISIBLE);
+        }
+    };
+
+    public static class FragmentDialogDoze extends FragmentDialogBase {
         @NonNull
         @Override
         public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
             return new AlertDialog.Builder(getContext())
+                    .setIcon(R.drawable.twotone_info_24)
+                    .setTitle(R.string.title_setup_doze)
                     .setMessage(R.string.title_setup_doze_instructions)
                     .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
                         @Override
@@ -378,6 +797,7 @@ public class FragmentSetup extends FragmentBase {
                             }
                         }
                     })
+                    .setNegativeButton(android.R.string.cancel, null)
                     .create();
         }
     }

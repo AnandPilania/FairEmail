@@ -16,22 +16,29 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
+
+import static android.app.Activity.RESULT_OK;
+import static com.google.android.material.textfield.TextInputLayout.END_ICON_NONE;
+import static com.google.android.material.textfield.TextInputLayout.END_ICON_PASSWORD_TOGGLE;
+import static eu.faircode.email.ServiceAuthenticator.AUTH_TYPE_GMAIL;
+import static eu.faircode.email.ServiceAuthenticator.AUTH_TYPE_OAUTH;
+import static eu.faircode.email.ServiceAuthenticator.AUTH_TYPE_PASSWORD;
 
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
+import android.graphics.Paint;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.text.method.LinkMovementMethod;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -44,7 +51,6 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
-import android.widget.ImageButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.Spinner;
@@ -53,14 +59,17 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.constraintlayout.widget.Group;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentTransaction;
 import androidx.lifecycle.Lifecycle;
 
 import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.textfield.TextInputLayout;
 import com.sun.mail.imap.IMAPFolder;
-import com.sun.mail.imap.protocol.IMAPProtocol;
 
+import java.io.FileNotFoundException;
 import java.net.UnknownHostException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -69,15 +78,12 @@ import java.util.Objects;
 
 import javax.mail.Folder;
 
-import static android.app.Activity.RESULT_OK;
-import static com.google.android.material.textfield.TextInputLayout.END_ICON_NONE;
-import static com.google.android.material.textfield.TextInputLayout.END_ICON_PASSWORD_TOGGLE;
-
 public class FragmentAccount extends FragmentBase {
     private ViewGroup view;
     private ScrollView scroll;
 
     private Spinner spProvider;
+    private TextView tvGmailHint;
 
     private EditText etDomain;
     private Button btnAutoConfig;
@@ -86,34 +92,43 @@ public class FragmentAccount extends FragmentBase {
     private EditText etHost;
     private RadioGroup rgEncryption;
     private CheckBox cbInsecure;
+    private TextView tvInsecureRemark;
     private EditText etPort;
     private EditText etUser;
     private TextInputLayout tilPassword;
+    private TextView tvAppPassword;
+    private TextView tvPasswordStorage;
+    private Button btnCertificate;
+    private TextView tvCertificate;
     private EditText etRealm;
 
     private EditText etName;
-    private Button btnColor;
-    private View vwColor;
-    private ImageButton ibColorDefault;
+    private EditText etCategory;
+    private ViewButtonColor btnColor;
     private TextView tvColorPro;
 
     private Button btnAdvanced;
     private CheckBox cbSynchronize;
+    private CheckBox cbOnDemand;
+    private TextView tvLeave;
     private CheckBox cbPrimary;
     private CheckBox cbNotify;
     private TextView tvNotifyPro;
     private CheckBox cbBrowse;
+    private CheckBox cbAutoSeen;
     private EditText etInterval;
     private CheckBox cbPartialFetch;
+    private CheckBox cbIgnoreSize;
+    private RadioGroup rgDate;
 
     private Button btnCheck;
     private ContentLoadingProgressBar pbCheck;
     private TextView tvIdle;
-    private TextView tvUtf8;
 
     private ArrayAdapter<EntityFolder> adapter;
     private Spinner spDrafts;
     private Spinner spSent;
+    private TextView tvSentWarning;
     private Spinner spArchive;
     private Spinner spTrash;
     private Spinner spJunk;
@@ -122,10 +137,15 @@ public class FragmentAccount extends FragmentBase {
     private Spinner spLeft;
     private Spinner spRight;
 
+    private Spinner spMove;
+
     private Button btnSave;
     private ContentLoadingProgressBar pbSave;
+    private CheckBox cbIdentity;
     private TextView tvError;
+    private CheckBox cbTrust;
     private Button btnHelp;
+    private Button btnSupport;
     private TextView tvInstructions;
 
     private ContentLoadingProgressBar pbWait;
@@ -134,18 +154,18 @@ public class FragmentAccount extends FragmentBase {
     private Group grpAuthorize;
     private Group grpAdvanced;
     private Group grpFolders;
+    private Group grpError;
 
     private long id = -1;
     private long copy = -1;
+    private int auth = AUTH_TYPE_PASSWORD;
+    private String provider = null;
+    private String certificate = null;
     private boolean saving = false;
-    private int color = Color.TRANSPARENT;
 
     private static final int REQUEST_COLOR = 1;
     private static final int REQUEST_SAVE = 2;
     private static final int REQUEST_DELETE = 3;
-
-    static final Long SWIPE_ACTION_ASK = -1L;
-    static final Long SWIPE_ACTION_SEEN = -2L;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -170,6 +190,7 @@ public class FragmentAccount extends FragmentBase {
 
         // Get controls
         spProvider = view.findViewById(R.id.spProvider);
+        tvGmailHint = view.findViewById(R.id.tvGmailHint);
 
         etDomain = view.findViewById(R.id.etDomain);
         btnAutoConfig = view.findViewById(R.id.btnAutoConfig);
@@ -179,44 +200,57 @@ public class FragmentAccount extends FragmentBase {
         etPort = view.findViewById(R.id.etPort);
         rgEncryption = view.findViewById(R.id.rgEncryption);
         cbInsecure = view.findViewById(R.id.cbInsecure);
+        tvInsecureRemark = view.findViewById(R.id.tvInsecureRemark);
         etUser = view.findViewById(R.id.etUser);
         tilPassword = view.findViewById(R.id.tilPassword);
+        tvAppPassword = view.findViewById(R.id.tvAppPassword);
+        tvPasswordStorage = view.findViewById(R.id.tvPasswordStorage);
+        btnCertificate = view.findViewById(R.id.btnCertificate);
+        tvCertificate = view.findViewById(R.id.tvCertificate);
         etRealm = view.findViewById(R.id.etRealm);
 
         etName = view.findViewById(R.id.etName);
+        etCategory = view.findViewById(R.id.etCategory);
         btnColor = view.findViewById(R.id.btnColor);
-        vwColor = view.findViewById(R.id.vwColor);
-        ibColorDefault = view.findViewById(R.id.ibColorDefault);
         tvColorPro = view.findViewById(R.id.tvColorPro);
 
         btnAdvanced = view.findViewById(R.id.btnAdvanced);
         cbSynchronize = view.findViewById(R.id.cbSynchronize);
+        cbOnDemand = view.findViewById(R.id.cbOnDemand);
+        tvLeave = view.findViewById(R.id.tvLeave);
         cbPrimary = view.findViewById(R.id.cbPrimary);
         cbNotify = view.findViewById(R.id.cbNotify);
         tvNotifyPro = view.findViewById(R.id.tvNotifyPro);
         cbBrowse = view.findViewById(R.id.cbBrowse);
+        cbAutoSeen = view.findViewById(R.id.cbAutoSeen);
         etInterval = view.findViewById(R.id.etInterval);
         cbPartialFetch = view.findViewById(R.id.cbPartialFetch);
+        cbIgnoreSize = view.findViewById(R.id.cbIgnoreSize);
+        rgDate = view.findViewById(R.id.rgDate);
 
         btnCheck = view.findViewById(R.id.btnCheck);
         pbCheck = view.findViewById(R.id.pbCheck);
 
         tvIdle = view.findViewById(R.id.tvIdle);
-        tvUtf8 = view.findViewById(R.id.tvUtf8);
 
         spDrafts = view.findViewById(R.id.spDrafts);
         spSent = view.findViewById(R.id.spSent);
+        tvSentWarning = view.findViewById(R.id.tvSentWarning);
         spArchive = view.findViewById(R.id.spArchive);
         spTrash = view.findViewById(R.id.spTrash);
         spJunk = view.findViewById(R.id.spJunk);
         spLeft = view.findViewById(R.id.spLeft);
         spRight = view.findViewById(R.id.spRight);
+        spMove = view.findViewById(R.id.spMove);
 
         btnSave = view.findViewById(R.id.btnSave);
         pbSave = view.findViewById(R.id.pbSave);
+        cbIdentity = view.findViewById(R.id.cbIdentity);
 
         tvError = view.findViewById(R.id.tvError);
+        cbTrust = view.findViewById(R.id.cbTrust);
         btnHelp = view.findViewById(R.id.btnHelp);
+        btnSupport = view.findViewById(R.id.btnSupport);
         tvInstructions = view.findViewById(R.id.tvInstructions);
 
         pbWait = view.findViewById(R.id.pbWait);
@@ -225,6 +259,7 @@ public class FragmentAccount extends FragmentBase {
         grpAuthorize = view.findViewById(R.id.grpAuthorize);
         grpAdvanced = view.findViewById(R.id.grpAdvanced);
         grpFolders = view.findViewById(R.id.grpFolders);
+        grpError = view.findViewById(R.id.grpError);
 
         // Wire controls
 
@@ -232,6 +267,9 @@ public class FragmentAccount extends FragmentBase {
             @Override
             public void onItemSelected(AdapterView<?> adapterView, View view, int position, long itemid) {
                 EmailProvider provider = (EmailProvider) adapterView.getSelectedItem();
+                tvGmailHint.setVisibility(
+                        auth == AUTH_TYPE_PASSWORD && "gmail".equals(provider.id)
+                                ? View.VISIBLE : View.GONE);
                 grpServer.setVisibility(position > 0 ? View.VISIBLE : View.GONE);
                 grpAuthorize.setVisibility(position > 0 ? View.VISIBLE : View.GONE);
 
@@ -241,7 +279,6 @@ public class FragmentAccount extends FragmentBase {
 
                 btnCheck.setVisibility(position > 0 ? View.VISIBLE : View.GONE);
                 tvIdle.setVisibility(View.GONE);
-                tvUtf8.setVisibility(View.GONE);
 
                 Object tag = adapterView.getTag();
                 if (tag != null && (Integer) tag == position)
@@ -255,32 +292,26 @@ public class FragmentAccount extends FragmentBase {
                 etUser.setTag(null);
                 etUser.setText(null);
                 tilPassword.getEditText().setText(null);
+                tvAppPassword.setVisibility(
+                        "office365".equals(provider.id) || "outlook".equals(provider.id)
+                                ? View.VISIBLE : View.GONE);
+                certificate = null;
+                tvCertificate.setText(R.string.title_optional);
                 etRealm.setText(null);
+                cbTrust.setChecked(false);
 
                 etName.setText(position > 1 ? provider.name : null);
                 etInterval.setText(provider.keepalive > 0 ? Integer.toString(provider.keepalive) : null);
+                cbPartialFetch.setChecked(provider.partial);
 
+                tvSentWarning.setVisibility(View.GONE);
                 grpFolders.setVisibility(View.GONE);
                 btnSave.setVisibility(View.GONE);
+                cbIdentity.setVisibility(View.GONE);
             }
 
             @Override
             public void onNothingSelected(AdapterView<?> adapterView) {
-            }
-        });
-
-        etDomain.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence text, int start, int before, int count) {
-                btnAutoConfig.setEnabled(text.length() > 0);
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
             }
         });
 
@@ -294,25 +325,89 @@ public class FragmentAccount extends FragmentBase {
         rgEncryption.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(RadioGroup group, int id) {
-                etPort.setHint(id == R.id.radio_starttls ? "143" : "993");
+                etPort.setHint(id == R.id.radio_ssl ? "993" : "143");
             }
         });
 
-        setColor(color);
+        tvInsecureRemark.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 4);
+            }
+        });
+
+        tilPassword.getEditText().addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+                // Do nothing
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                // https://github.com/material-components/material-components-android/issues/503
+                //if (TextUtils.isEmpty(s))
+                //   tilPassword.setEndIconMode(END_ICON_PASSWORD_TOGGLE);
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                String password = s.toString();
+                boolean warning = (Helper.containsWhiteSpace(password) ||
+                        Helper.containsControlChars(password));
+                tilPassword.setHelperText(
+                        warning ? getString(R.string.title_setup_password_chars) : null);
+                tilPassword.setHelperTextEnabled(warning);
+            }
+        });
+
+        tvAppPassword.setVisibility(View.GONE);
+        tvAppPassword.setPaintFlags(tvAppPassword.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvAppPassword.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Helper.viewFAQ(view.getContext(), 14);
+            }
+        });
+
+        tvPasswordStorage.setPaintFlags(tvPasswordStorage.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvPasswordStorage.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 37);
+            }
+        });
+
+        btnCertificate.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.selectKeyAlias(getActivity(), getViewLifecycleOwner(), null, new Helper.IKeyAlias() {
+                    @Override
+                    public void onSelected(String alias) {
+                        certificate = alias;
+                        tvCertificate.setText(alias);
+                    }
+
+                    @Override
+                    public void onNothingSelected() {
+                        certificate = null;
+                        tvCertificate.setText(getString(R.string.title_optional));
+                    }
+                });
+            }
+        });
+
         btnColor.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                FragmentDialogColor fragment = new FragmentDialogColor();
-                fragment.initialize(R.string.title_color, color, new Bundle(), getContext());
-                fragment.setTargetFragment(FragmentAccount.this, REQUEST_COLOR);
-                fragment.show(getFragmentManager(), "account:color");
-            }
-        });
+                Bundle args = new Bundle();
+                args.putInt("color", btnColor.getColor());
+                args.putString("title", getString(R.string.title_color));
+                args.putBoolean("reset", true);
 
-        ibColorDefault.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                setColor(Color.TRANSPARENT);
+                FragmentDialogColor fragment = new FragmentDialogColor();
+                fragment.setArguments(args);
+                fragment.setTargetFragment(FragmentAccount.this, REQUEST_COLOR);
+                fragment.show(getParentFragmentManager(), "account:color");
             }
         });
 
@@ -324,9 +419,11 @@ public class FragmentAccount extends FragmentBase {
                 int visibility = (grpAdvanced.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
                 grpAdvanced.setVisibility(visibility);
                 if (visibility == View.VISIBLE)
-                    new Handler().post(new Runnable() {
+                    getMainHandler().post(new Runnable() {
                         @Override
                         public void run() {
+                            if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
+                                return;
                             scroll.smoothScrollTo(0, btnAdvanced.getTop());
                         }
                     });
@@ -336,7 +433,16 @@ public class FragmentAccount extends FragmentBase {
         cbSynchronize.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
+                cbOnDemand.setEnabled(checked);
                 cbPrimary.setEnabled(checked);
+            }
+        });
+
+        tvLeave.getPaint().setUnderlineText(true);
+        tvLeave.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 134);
             }
         });
 
@@ -346,6 +452,8 @@ public class FragmentAccount extends FragmentBase {
         }
 
         Helper.linkPro(tvNotifyPro);
+
+        etInterval.setHint(Integer.toString(EntityAccount.DEFAULT_KEEP_ALIVE_INTERVAL));
 
         btnCheck.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -361,7 +469,12 @@ public class FragmentAccount extends FragmentBase {
             }
         });
 
-        addBackPressedListener(new ActivityBase.IBackPressedListener() {
+        addKeyPressedListener(new ActivityBase.IKeyPressedListener() {
+            @Override
+            public boolean onKeyPressed(KeyEvent event) {
+                return false;
+            }
+
             @Override
             public boolean onBackPressed() {
                 onSave(true);
@@ -377,6 +490,13 @@ public class FragmentAccount extends FragmentBase {
             }
         });
 
+        btnSupport.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.view(v.getContext(), Helper.getSupportUri(v.getContext()), false);
+            }
+        });
+
         adapter = new ArrayAdapter<>(getContext(), R.layout.spinner_item1, android.R.id.text1, new ArrayList<EntityFolder>());
         adapter.setDropDownViewResource(R.layout.spinner_item1_dropdown);
 
@@ -386,35 +506,73 @@ public class FragmentAccount extends FragmentBase {
         spTrash.setAdapter(adapter);
         spJunk.setAdapter(adapter);
 
-        adapterSwipe = new ArrayAdapter<>(getContext(), R.layout.spinner_item1, android.R.id.text1, new ArrayList<EntityFolder>());
+        tvSentWarning.setVisibility(View.GONE);
+        spSent.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                tvSentWarning.setVisibility(position == 0 ? View.VISIBLE : View.GONE);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                tvSentWarning.setVisibility(View.VISIBLE);
+            }
+        });
+
+        adapterSwipe = new ArrayAdapter<EntityFolder>(getContext(), R.layout.spinner_item1, android.R.id.text1, new ArrayList<EntityFolder>()) {
+            @NonNull
+            @Override
+            public View getView(int position, @Nullable View convertView, @NonNull ViewGroup parent) {
+                return localize(position, super.getView(position, convertView, parent));
+            }
+
+            @Override
+            public View getDropDownView(int position, @Nullable View convertView, @NonNull ViewGroup parent) {
+                return localize(position, super.getDropDownView(position, convertView, parent));
+            }
+
+            private View localize(int position, View view) {
+                EntityFolder folder = getItem(position);
+                if (folder != null) {
+                    TextView tv = view.findViewById(android.R.id.text1);
+                    tv.setText(EntityFolder.localizeName(view.getContext(), folder.name));
+                }
+                return view;
+            }
+        };
         adapterSwipe.setDropDownViewResource(R.layout.spinner_item1_dropdown);
 
         spLeft.setAdapter(adapterSwipe);
         spRight.setAdapter(adapterSwipe);
 
+        spMove.setAdapter(adapter);
+
         // Initialize
         Helper.setViewsEnabled(view, false);
+
+        tvGmailHint.setVisibility(View.GONE);
 
         btnAutoConfig.setEnabled(false);
         pbAutoConfig.setVisibility(View.GONE);
 
         rgEncryption.setVisibility(View.GONE);
         cbInsecure.setVisibility(View.GONE);
-        tilPassword.setEndIconMode(id < 0 ? END_ICON_PASSWORD_TOGGLE : END_ICON_NONE);
+        tilPassword.setEndIconMode(id < 0 || Helper.isSecure(getContext()) ? END_ICON_PASSWORD_TOGGLE : END_ICON_NONE);
 
         btnAdvanced.setVisibility(View.GONE);
 
         tvIdle.setVisibility(View.GONE);
-        tvUtf8.setVisibility(View.GONE);
 
         btnCheck.setVisibility(View.GONE);
         pbCheck.setVisibility(View.GONE);
 
         btnSave.setVisibility(View.GONE);
         pbSave.setVisibility(View.GONE);
+        cbIdentity.setVisibility(View.GONE);
 
-        tvError.setVisibility(View.GONE);
+        cbTrust.setVisibility(View.GONE);
         btnHelp.setVisibility(View.GONE);
+        btnSupport.setVisibility(View.GONE);
         tvInstructions.setVisibility(View.GONE);
         tvInstructions.setMovementMethod(LinkMovementMethod.getInstance());
 
@@ -422,13 +580,16 @@ public class FragmentAccount extends FragmentBase {
         grpAuthorize.setVisibility(View.GONE);
         grpAdvanced.setVisibility(View.GONE);
         grpFolders.setVisibility(View.GONE);
+        grpError.setVisibility(View.GONE);
+
+        pbWait.setVisibility(View.VISIBLE);
 
         return view;
     }
 
     private void onAutoConfig() {
         Bundle args = new Bundle();
-        args.putString("domain", etDomain.getText().toString());
+        args.putString("domain", etDomain.getText().toString().trim());
 
         new SimpleTask<EmailProvider>() {
             @Override
@@ -448,7 +609,9 @@ public class FragmentAccount extends FragmentBase {
             @Override
             protected EmailProvider onExecute(Context context, Bundle args) throws Throwable {
                 String domain = args.getString("domain");
-                return EmailProvider.fromDomain(context, domain, EmailProvider.Discover.IMAP);
+                return EmailProvider
+                        .fromDomain(context, domain, EmailProvider.Discover.IMAP)
+                        .get(0);
             }
 
             @Override
@@ -460,44 +623,61 @@ public class FragmentAccount extends FragmentBase {
 
             @Override
             protected void onException(Bundle args, Throwable ex) {
-                if (ex instanceof IllegalArgumentException || ex instanceof UnknownHostException)
-                    Snackbar.make(view, ex.getMessage(), Snackbar.LENGTH_LONG).show();
+                if (ex.getMessage() != null &&
+                        (ex instanceof UnknownHostException ||
+                                ex instanceof FileNotFoundException ||
+                                ex instanceof IllegalArgumentException))
+                    Snackbar.make(view, ex.getMessage(), Snackbar.LENGTH_LONG)
+                            .setGestureInsetBottomIgnored(true).show();
                 else
-                    Helper.unexpectedError(getFragmentManager(), ex);
+                    Log.unexpectedError(getParentFragmentManager(), ex);
             }
-        }.execute(FragmentAccount.this, args, "account:config");
+        }.execute(this, args, "account:config");
     }
 
     private void onCheck() {
+        int encryption;
+        if (rgEncryption.getCheckedRadioButtonId() == R.id.radio_starttls)
+            encryption = EmailService.ENCRYPTION_STARTTLS;
+        else if (rgEncryption.getCheckedRadioButtonId() == R.id.radio_none)
+            encryption = EmailService.ENCRYPTION_NONE;
+        else
+            encryption = EmailService.ENCRYPTION_SSL;
+
         Bundle args = new Bundle();
         args.putLong("id", id);
-        args.putString("host", etHost.getText().toString());
-        args.putBoolean("starttls", rgEncryption.getCheckedRadioButtonId() == R.id.radio_starttls);
+        args.putString("host", etHost.getText().toString().trim().replace(" ", ""));
+        args.putInt("encryption", encryption);
         args.putBoolean("insecure", cbInsecure.isChecked());
         args.putString("port", etPort.getText().toString());
-        args.putString("user", etUser.getText().toString());
+        args.putInt("auth", auth);
+        args.putString("provider", provider);
+        args.putString("user", etUser.getText().toString().trim());
         args.putString("password", tilPassword.getEditText().getText().toString());
+        args.putString("certificate", certificate);
         args.putString("realm", etRealm.getText().toString());
+        args.putString("fingerprint", cbTrust.isChecked() ? (String) cbTrust.getTag() : null);
 
         new SimpleTask<CheckResult>() {
             @Override
             protected void onPreExecute(Bundle args) {
                 saving = true;
-                getActivity().invalidateOptionsMenu();
+                invalidateOptionsMenu();
                 Helper.setViewsEnabled(view, false);
                 pbCheck.setVisibility(View.VISIBLE);
                 tvIdle.setVisibility(View.GONE);
-                tvUtf8.setVisibility(View.GONE);
+                tvSentWarning.setVisibility(View.GONE);
                 grpFolders.setVisibility(View.GONE);
-                tvError.setVisibility(View.GONE);
+                grpError.setVisibility(View.GONE);
                 btnHelp.setVisibility(View.GONE);
+                btnSupport.setVisibility(View.GONE);
                 tvInstructions.setVisibility(View.GONE);
             }
 
             @Override
             protected void onPostExecute(Bundle args) {
                 saving = false;
-                getActivity().invalidateOptionsMenu();
+                invalidateOptionsMenu();
                 Helper.setViewsEnabled(view, true);
                 pbCheck.setVisibility(View.GONE);
             }
@@ -506,25 +686,28 @@ public class FragmentAccount extends FragmentBase {
             protected CheckResult onExecute(Context context, Bundle args) throws Throwable {
                 long id = args.getLong("id");
                 String host = args.getString("host");
-                boolean starttls = args.getBoolean("starttls");
+                int encryption = args.getInt("encryption");
                 boolean insecure = args.getBoolean("insecure");
                 String port = args.getString("port");
+                int auth = args.getInt("auth");
+                String provider = args.getString("provider");
                 String user = args.getString("user");
                 String password = args.getString("password");
+                String certificate = args.getString("certificate");
                 String realm = args.getString("realm");
+                String fingerprint = args.getString("fingerprint");
 
-                if (host.contains(":")) {
-                    Uri h = Uri.parse(host);
-                    host = h.getHost();
-                }
+                int semi = host.indexOf(':');
+                if (semi > 0 && host.indexOf(':', semi + 1) < 0)
+                    host = host.substring(0, semi);
 
                 if (TextUtils.isEmpty(host))
                     throw new IllegalArgumentException(context.getString(R.string.title_no_host));
                 if (TextUtils.isEmpty(port))
-                    port = (starttls ? "143" : "993");
-                if (TextUtils.isEmpty(user))
+                    port = (encryption == EmailService.ENCRYPTION_SSL ? "993" : "143");
+                if (TextUtils.isEmpty(user) && !insecure)
                     throw new IllegalArgumentException(context.getString(R.string.title_no_user));
-                if (TextUtils.isEmpty(password) && !insecure)
+                if (TextUtils.isEmpty(password) && !insecure && certificate == null)
                     throw new IllegalArgumentException(context.getString(R.string.title_no_password));
 
                 if (TextUtils.isEmpty(realm))
@@ -537,23 +720,20 @@ public class FragmentAccount extends FragmentBase {
                 result.folders = new ArrayList<>();
 
                 // Check IMAP server / get folders
-                String protocol = "imap" + (starttls ? "" : "s");
-                try (MailService iservice = new MailService(context, protocol, realm, insecure, true)) {
-                    iservice.connect(host, Integer.parseInt(port), user, password);
+                String protocol = "imap" + (encryption == EmailService.ENCRYPTION_SSL ? "s" : "");
+                try (EmailService iservice = new EmailService(
+                        context, protocol, realm, encryption, insecure,
+                        EmailService.PURPOSE_CHECK, true)) {
+                    iservice.connect(
+                            host, Integer.parseInt(port),
+                            auth, provider,
+                            user, password,
+                            certificate, fingerprint);
 
-                    result.idle = iservice.getStore().hasCapability("IDLE");
-
-                    boolean inbox = false;
-                    boolean archive = false;
-                    boolean drafts = false;
-                    boolean trash = false;
-                    boolean sent = false;
-                    boolean junk = false;
-                    EntityFolder altArchive = null;
-                    EntityFolder altDrafts = null;
-                    EntityFolder altTrash = null;
-                    EntityFolder altSent = null;
-                    EntityFolder altJunk = null;
+                    result.idle = iservice.hasCapability("IDLE");
+                    result.utf8 =
+                            iservice.hasCapability("UTF8=ACCEPT") ||
+                                    iservice.hasCapability("UTF8=ONLY");
 
                     for (Folder ifolder : iservice.getStore().getDefaultFolder().list("*")) {
                         // Check folder attributes
@@ -562,72 +742,27 @@ public class FragmentAccount extends FragmentBase {
                         Log.i(fullName + " attrs=" + TextUtils.join(" ", attrs));
                         String type = EntityFolder.getType(attrs, fullName, true);
 
-                        if (type != null) {
+                        boolean selectable = true;
+                        for (String attr : attrs)
+                            if (attr.equalsIgnoreCase("\\NoSelect")) {
+                                selectable = false;
+                                break;
+                            }
+                        selectable = selectable && ((ifolder.getType() & IMAPFolder.HOLDS_MESSAGES) != 0);
+
+                        if (type != null && selectable) {
                             // Create entry
                             EntityFolder folder = db.folder().getFolderByName(id, fullName);
-                            if (folder == null) {
-                                int sync = EntityFolder.SYSTEM_FOLDER_SYNC.indexOf(type);
-                                folder = new EntityFolder();
-                                folder.name = fullName;
-                                folder.type = type;
-                                folder.synchronize = (sync >= 0);
-                                folder.download = (sync < 0 ? true : EntityFolder.SYSTEM_FOLDER_DOWNLOAD.get(sync));
-                                folder.sync_days = EntityFolder.DEFAULT_SYNC;
-                                folder.keep_days = EntityFolder.DEFAULT_KEEP;
-                            }
+                            if (folder == null)
+                                folder = new EntityFolder(fullName, type);
                             result.folders.add(folder);
-
-                            if (EntityFolder.USER.equals(type)) {
-                                if (folder.name.toLowerCase().contains("archive"))
-                                    altArchive = folder;
-                                if (folder.name.toLowerCase().contains("draft"))
-                                    altDrafts = folder;
-                                if (folder.name.toLowerCase().contains("trash"))
-                                    altTrash = folder;
-                                if (folder.name.toLowerCase().contains("sent"))
-                                    altSent = folder;
-                                if (folder.name.toLowerCase().contains("junk"))
-                                    altJunk = folder;
-                            } else {
-                                if (EntityFolder.INBOX.equals(type))
-                                    inbox = true;
-                                else if (EntityFolder.ARCHIVE.equals(type))
-                                    archive = true;
-                                else if (EntityFolder.DRAFTS.equals(type))
-                                    drafts = true;
-                                else if (EntityFolder.TRASH.equals(type))
-                                    trash = true;
-                                else if (EntityFolder.SENT.equals(type))
-                                    sent = true;
-                                else if (EntityFolder.JUNK.equals(type))
-                                    junk = true;
-                            }
-
-                            if (EntityFolder.INBOX.equals(type))
-                                result.utf8 = (Boolean) ((IMAPFolder) ifolder).doCommand(new IMAPFolder.ProtocolCommand() {
-                                    @Override
-                                    public Object doCommand(IMAPProtocol protocol) {
-                                        return protocol.supportsUtf8();
-                                    }
-                                });
 
                             Log.i(folder.name + " id=" + folder.id +
                                     " type=" + folder.type + " attr=" + TextUtils.join(",", attrs));
                         }
                     }
 
-                    if (!inbox)
-                        throw new IllegalArgumentException(context.getString(R.string.title_no_inbox));
-                    if (!archive && altArchive != null)
-                        altArchive.type = EntityFolder.ARCHIVE;
-                    if (!drafts && altDrafts != null)
-                        altDrafts.type = EntityFolder.DRAFTS;
-                    if (!trash && altTrash != null)
-                        altTrash.type = EntityFolder.TRASH;
-                    if (!sent && altSent != null)
-                        altSent.type = EntityFolder.SENT;
-                    if (!junk && altJunk != null)
-                        altJunk.type = EntityFolder.JUNK;
+                    EntityFolder.guessTypes(result.folders);
 
                     if (result.folders.size() > 0)
                         Collections.sort(result.folders, result.folders.get(0).getComparator(null));
@@ -639,29 +774,38 @@ public class FragmentAccount extends FragmentBase {
             @Override
             protected void onExecuted(Bundle args, CheckResult result) {
                 tvIdle.setVisibility(result.idle ? View.GONE : View.VISIBLE);
-                tvUtf8.setVisibility(result.utf8 == null || result.utf8 ? View.GONE : View.VISIBLE);
+                if (!result.idle)
+                    etInterval.setText(Integer.toString(EntityAccount.DEFAULT_POLL_INTERVAL));
 
                 setFolders(result.folders, result.account);
 
-                new Handler().post(new Runnable() {
+                if (!cbTrust.isChecked())
+                    cbTrust.setVisibility(View.GONE);
+
+                getMainHandler().post(new Runnable() {
                     @Override
                     public void run() {
-                        scroll.smoothScrollTo(0, btnSave.getBottom());
+                        if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
+                            return;
+                        scroll.smoothScrollTo(0, cbIdentity.getBottom());
                     }
                 });
             }
 
             @Override
             protected void onException(Bundle args, Throwable ex) {
+                tvSentWarning.setVisibility(View.GONE);
                 grpFolders.setVisibility(View.GONE);
                 btnSave.setVisibility(View.GONE);
+                cbIdentity.setVisibility(View.GONE);
 
                 if (ex instanceof IllegalArgumentException)
-                    Snackbar.make(view, ex.getMessage(), Snackbar.LENGTH_LONG).show();
+                    Snackbar.make(view, ex.getMessage(), Snackbar.LENGTH_LONG)
+                            .setGestureInsetBottomIgnored(true).show();
                 else
                     showError(ex);
             }
-        }.execute(FragmentAccount.this, args, "account:check");
+        }.execute(this, args, "account:check");
     }
 
     private void onSave(boolean should) {
@@ -672,6 +816,7 @@ public class FragmentAccount extends FragmentBase {
         EntityFolder junk = (EntityFolder) spJunk.getSelectedItem();
         EntityFolder left = (EntityFolder) spLeft.getSelectedItem();
         EntityFolder right = (EntityFolder) spRight.getSelectedItem();
+        EntityFolder move = (EntityFolder) spMove.getSelectedItem();
 
         if (drafts != null && drafts.id != null && drafts.id == 0L)
             drafts = null;
@@ -689,26 +834,47 @@ public class FragmentAccount extends FragmentBase {
         if (right != null && right.id != null && right.id == 0L)
             right = null;
 
+        if (move != null && move.id != null && move.id == 0L)
+            move = null;
+
         Bundle args = new Bundle();
         args.putLong("id", id);
 
-        args.putString("host", etHost.getText().toString());
-        args.putBoolean("starttls", rgEncryption.getCheckedRadioButtonId() == R.id.radio_starttls);
+        int encryption;
+        if (rgEncryption.getCheckedRadioButtonId() == R.id.radio_starttls)
+            encryption = EmailService.ENCRYPTION_STARTTLS;
+        else if (rgEncryption.getCheckedRadioButtonId() == R.id.radio_none)
+            encryption = EmailService.ENCRYPTION_NONE;
+        else
+            encryption = EmailService.ENCRYPTION_SSL;
+
+        args.putString("host", etHost.getText().toString().trim().replace(" ", ""));
+        args.putInt("encryption", encryption);
         args.putBoolean("insecure", cbInsecure.isChecked());
         args.putString("port", etPort.getText().toString());
-        args.putString("user", etUser.getText().toString());
+        args.putInt("auth", auth);
+        args.putString("provider", provider);
+        args.putString("user", etUser.getText().toString().trim());
         args.putString("password", tilPassword.getEditText().getText().toString());
+        args.putString("certificate", certificate);
         args.putString("realm", etRealm.getText().toString());
+        args.putString("fingerprint", cbTrust.isChecked() ? (String) cbTrust.getTag() : null);
 
         args.putString("name", etName.getText().toString());
-        args.putInt("color", color);
+        args.putString("category", etCategory.getText().toString());
+        args.putInt("color", btnColor.getColor());
 
         args.putBoolean("synchronize", cbSynchronize.isChecked());
+        args.putBoolean("ondemand", cbOnDemand.isChecked());
         args.putBoolean("primary", cbPrimary.isChecked());
         args.putBoolean("notify", cbNotify.isChecked());
         args.putBoolean("browse", cbBrowse.isChecked());
+        args.putBoolean("auto_seen", cbAutoSeen.isChecked());
         args.putString("interval", etInterval.getText().toString());
         args.putBoolean("partial_fetch", cbPartialFetch.isChecked());
+        args.putBoolean("ignore_size", cbIgnoreSize.isChecked());
+        args.putBoolean("use_date", rgDate.getCheckedRadioButtonId() == R.id.radio_date_header);
+        args.putBoolean("use_received", rgDate.getCheckedRadioButtonId() == R.id.radio_received_header);
 
         args.putSerializable("drafts", drafts);
         args.putSerializable("sent", sent);
@@ -717,6 +883,7 @@ public class FragmentAccount extends FragmentBase {
         args.putSerializable("junk", junk);
         args.putSerializable("left", left);
         args.putSerializable("right", right);
+        args.putSerializable("move", move);
 
         args.putBoolean("should", should);
 
@@ -724,18 +891,19 @@ public class FragmentAccount extends FragmentBase {
             @Override
             protected void onPreExecute(Bundle args) {
                 saving = true;
-                getActivity().invalidateOptionsMenu();
+                invalidateOptionsMenu();
                 Helper.setViewsEnabled(view, false);
                 pbSave.setVisibility(View.VISIBLE);
-                tvError.setVisibility(View.GONE);
+                grpError.setVisibility(View.GONE);
                 btnHelp.setVisibility(View.GONE);
+                btnSupport.setVisibility(View.GONE);
                 tvInstructions.setVisibility(View.GONE);
             }
 
             @Override
             protected void onPostExecute(Bundle args) {
                 saving = false;
-                getActivity().invalidateOptionsMenu();
+                invalidateOptionsMenu();
                 Helper.setViewsEnabled(view, true);
                 pbSave.setVisibility(View.GONE);
             }
@@ -745,22 +913,32 @@ public class FragmentAccount extends FragmentBase {
                 long id = args.getLong("id");
 
                 String host = args.getString("host");
-                boolean starttls = args.getBoolean("starttls");
+                int encryption = args.getInt("encryption");
                 boolean insecure = args.getBoolean("insecure");
                 String port = args.getString("port");
+                int auth = args.getInt("auth");
+                String provider = args.getString("provider");
                 String user = args.getString("user").trim();
                 String password = args.getString("password");
+                String certificate = args.getString("certificate");
                 String realm = args.getString("realm");
+                String fingerprint = args.getString("fingerprint");
 
                 String name = args.getString("name");
+                String category = args.getString("category");
                 Integer color = args.getInt("color");
 
                 boolean synchronize = args.getBoolean("synchronize");
+                boolean ondemand = args.getBoolean("ondemand");
                 boolean primary = args.getBoolean("primary");
                 boolean notify = args.getBoolean("notify");
                 boolean browse = args.getBoolean("browse");
+                boolean auto_seen = args.getBoolean("auto_seen");
                 String interval = args.getString("interval");
                 boolean partial_fetch = args.getBoolean("partial_fetch");
+                boolean ignore_size = args.getBoolean("ignore_size");
+                boolean use_date = args.getBoolean("use_date");
+                boolean use_received = args.getBoolean("use_received");
 
                 EntityFolder drafts = (EntityFolder) args.getSerializable("drafts");
                 EntityFolder sent = (EntityFolder) args.getSerializable("sent");
@@ -769,30 +947,32 @@ public class FragmentAccount extends FragmentBase {
                 EntityFolder junk = (EntityFolder) args.getSerializable("junk");
                 EntityFolder left = (EntityFolder) args.getSerializable("left");
                 EntityFolder right = (EntityFolder) args.getSerializable("right");
+                EntityFolder move = (EntityFolder) args.getSerializable("move");
 
                 boolean pro = ActivityBilling.isPro(context);
                 boolean should = args.getBoolean("should");
 
-                if (host.contains(":")) {
-                    Uri h = Uri.parse(host);
-                    host = h.getHost();
-                }
+                int semi = host.indexOf(':');
+                if (semi > 0 && host.indexOf(':', semi + 1) < 0)
+                    host = host.substring(0, semi);
 
-                if (!should && TextUtils.isEmpty(host))
+                if (TextUtils.isEmpty(host) && !should)
                     throw new IllegalArgumentException(context.getString(R.string.title_no_host));
                 if (TextUtils.isEmpty(port))
-                    port = (starttls ? "143" : "993");
-                if (!should && TextUtils.isEmpty(user))
+                    port = (encryption == EmailService.ENCRYPTION_SSL ? "993" : "143");
+                if (TextUtils.isEmpty(user) && !insecure && !should)
                     throw new IllegalArgumentException(context.getString(R.string.title_no_user));
-                if (!should && synchronize && TextUtils.isEmpty(password) && !insecure)
+                if (synchronize && TextUtils.isEmpty(password) && !insecure && certificate == null && !should)
                     throw new IllegalArgumentException(context.getString(R.string.title_no_password));
-                if (TextUtils.isEmpty(interval))
-                    interval = Integer.toString(EntityAccount.DEFAULT_KEEP_ALIVE_INTERVAL);
+                int poll_interval = (TextUtils.isEmpty(interval)
+                        ? EntityAccount.DEFAULT_KEEP_ALIVE_INTERVAL : Integer.parseInt(interval));
 
                 if (TextUtils.isEmpty(realm))
                     realm = null;
                 if (TextUtils.isEmpty(name))
                     name = user;
+                if (TextUtils.isEmpty(category))
+                    category = null;
                 if (color == Color.TRANSPARENT || !pro)
                     color = null;
                 if (!pro)
@@ -809,23 +989,33 @@ public class FragmentAccount extends FragmentBase {
 
                     if (!Objects.equals(account.host, host))
                         return true;
-                    if (!Objects.equals(account.starttls, starttls))
+                    if (!Objects.equals(account.encryption, encryption))
                         return true;
                     if (!Objects.equals(account.insecure, insecure))
                         return true;
                     if (!Objects.equals(account.port, Integer.parseInt(port)))
                         return true;
+                    if (account.auth_type != auth)
+                        return true;
                     if (!Objects.equals(account.user, user))
                         return true;
                     if (!Objects.equals(account.password, password))
                         return true;
+                    if (!Objects.equals(account.certificate_alias, certificate))
+                        return true;
                     if (!Objects.equals(account.realm, realm))
                         return true;
+                    if (!Objects.equals(account.fingerprint, fingerprint))
+                        return true;
                     if (!Objects.equals(account.name, name))
+                        return true;
+                    if (!Objects.equals(account.category, category))
                         return true;
                     if (!Objects.equals(account.color, color))
                         return true;
                     if (!Objects.equals(account.synchronize, synchronize))
+                        return true;
+                    if (!Objects.equals(account.ondemand, ondemand))
                         return true;
                     if (!Objects.equals(account.primary, account.synchronize && primary))
                         return true;
@@ -833,9 +1023,19 @@ public class FragmentAccount extends FragmentBase {
                         return true;
                     if (!Objects.equals(account.browse, browse))
                         return true;
-                    if (!Objects.equals(account.poll_interval, Integer.parseInt(interval)))
+                    if (!Objects.equals(account.auto_seen, auto_seen))
+                        return true;
+                    if (!Objects.equals(account.poll_interval, poll_interval))
                         return true;
                     if (!Objects.equals(account.partial_fetch, partial_fetch))
+                        return true;
+                    if (!Objects.equals(account.ignore_size, ignore_size))
+                        return true;
+                    if (!Objects.equals(account.use_date, use_date))
+                        return true;
+                    if (!Objects.equals(account.use_received, use_received))
+                        return true;
+                    if (account.error != null && account.synchronize)
                         return true;
 
                     EntityFolder edrafts = db.folder().getFolderByType(account.id, EntityFolder.DRAFTS);
@@ -863,7 +1063,7 @@ public class FragmentAccount extends FragmentBase {
                     if (!Objects.equals(account.swipe_right, right == null ? null : right.id))
                         return true;
 
-                    if (account.error != null)
+                    if (!Objects.equals(account.move_to, move == null ? null : move.id))
                         return true;
 
                     return false;
@@ -872,17 +1072,19 @@ public class FragmentAccount extends FragmentBase {
                 String accountRealm = (account == null ? null : account.realm);
 
                 boolean check = (synchronize && (account == null ||
-                        !account.synchronize || account.error != null ||
+                        !account.synchronize ||
+                        account.error != null ||
+                        !account.host.equals(host) ||
+                        !account.encryption.equals(encryption) ||
                         !account.insecure.equals(insecure) ||
-                        !host.equals(account.host) || Integer.parseInt(port) != account.port ||
-                        !user.equals(account.user) || !password.equals(account.password) ||
-                        !Objects.equals(realm, accountRealm)));
-                boolean reload = (check || account == null ||
-                        account.synchronize != synchronize ||
-                        account.notify != notify ||
-                        !account.poll_interval.equals(Integer.parseInt(interval)) ||
-                        account.partial_fetch != partial_fetch);
-                Log.i("Account check=" + check + " reload=" + reload);
+                        !account.port.equals(Integer.parseInt(port)) ||
+                        !account.user.equals(user) ||
+                        !account.password.equals(password) ||
+                        !Objects.equals(account.certificate_alias, certificate) ||
+                        !Objects.equals(realm, accountRealm) ||
+                        !Objects.equals(account.fingerprint, fingerprint) ||
+                        BuildConfig.DEBUG));
+                Log.i("Account check=" + check);
 
                 Long last_connected = null;
                 if (account != null && synchronize == account.synchronize)
@@ -891,9 +1093,15 @@ public class FragmentAccount extends FragmentBase {
                 // Check IMAP server
                 EntityFolder inbox = null;
                 if (check) {
-                    String protocol = "imap" + (starttls ? "" : "s");
-                    try (MailService iservice = new MailService(context, protocol, realm, insecure, true)) {
-                        iservice.connect(host, Integer.parseInt(port), user, password);
+                    String protocol = "imap" + (encryption == EmailService.ENCRYPTION_SSL ? "s" : "");
+                    try (EmailService iservice = new EmailService(
+                            context, protocol, realm, encryption, insecure,
+                            EmailService.PURPOSE_CHECK, true)) {
+                        iservice.connect(
+                                host, Integer.parseInt(port),
+                                auth, provider,
+                                user, password,
+                                certificate, fingerprint);
 
                         for (Folder ifolder : iservice.getStore().getDefaultFolder().list("*")) {
                             // Check folder attributes
@@ -919,28 +1127,51 @@ public class FragmentAccount extends FragmentBase {
                 try {
                     db.beginTransaction();
 
+                    if (account != null && !account.password.equals(password)) {
+                        String domain = UriHelper.getParentDomain(context, account.host);
+                        String match = (Objects.equals(account.host, domain) ? account.host : "%." + domain);
+                        int count = db.identity().setIdentityPassword(account.id, account.user, password, match);
+                        Log.i("Updated passwords=" + count + " match=" + match);
+                    }
+
                     boolean update = (account != null);
                     if (account == null)
                         account = new EntityAccount();
 
-                    account.auth_type = ConnectionHelper.AUTH_TYPE_PASSWORD;
                     account.host = host;
-                    account.starttls = starttls;
+                    account.encryption = encryption;
                     account.insecure = insecure;
                     account.port = Integer.parseInt(port);
+                    account.auth_type = auth;
                     account.user = user;
                     account.password = password;
+                    account.certificate_alias = certificate;
+                    account.provider = provider;
                     account.realm = realm;
+                    account.fingerprint = fingerprint;
 
                     account.name = name;
+                    account.category = category;
                     account.color = color;
 
                     account.synchronize = synchronize;
+                    account.ondemand = ondemand;
                     account.primary = (account.synchronize && primary);
                     account.notify = notify;
                     account.browse = browse;
-                    account.poll_interval = Integer.parseInt(interval);
+                    account.auto_seen = auto_seen;
+
+                    if (account.poll_interval != poll_interval) {
+                        account.keep_alive_ok = false;
+                        account.keep_alive_failed = 0;
+                        account.keep_alive_succeeded = 0;
+                    }
+                    account.poll_interval = Math.max(1, poll_interval);
+
                     account.partial_fetch = partial_fetch;
+                    account.ignore_size = ignore_size;
+                    account.use_date = use_date;
+                    account.use_received = use_received;
 
                     if (!update)
                         account.created = now;
@@ -956,6 +1187,8 @@ public class FragmentAccount extends FragmentBase {
                         db.account().updateAccount(account);
                     else
                         account.id = db.account().insertAccount(account);
+
+                    args.putLong("account", account.id);
                     EntityLog.log(context, (update ? "Updated" : "Added") + " account=" + account.name);
 
                     // Make sure the channel exists on commit
@@ -975,23 +1208,28 @@ public class FragmentAccount extends FragmentBase {
 
                     if (drafts != null) {
                         drafts.type = EntityFolder.DRAFTS;
+                        drafts.poll = EntityFolder.shouldPoll(drafts.type);
                         folders.add(drafts);
                     }
 
                     if (sent != null) {
                         sent.type = EntityFolder.SENT;
+                        sent.poll = EntityFolder.shouldPoll(sent.type);
                         folders.add(sent);
                     }
                     if (archive != null) {
                         archive.type = EntityFolder.ARCHIVE;
+                        archive.poll = EntityFolder.shouldPoll(archive.type);
                         folders.add(archive);
                     }
                     if (trash != null) {
                         trash.type = EntityFolder.TRASH;
+                        trash.poll = EntityFolder.shouldPoll(trash.type);
                         folders.add(trash);
                     }
                     if (junk != null) {
                         junk.type = EntityFolder.JUNK;
+                        junk.poll = EntityFolder.shouldPoll(junk.type);
                         folders.add(junk);
                     }
 
@@ -1021,14 +1259,30 @@ public class FragmentAccount extends FragmentBase {
                         }
                     }
 
+                    if (move != null && !(move.id != null && move.id < 0)) {
+                        boolean found = false;
+                        for (EntityFolder folder : folders)
+                            if (move.name.equals(folder.name)) {
+                                found = true;
+                                break;
+                            }
+                        if (!found) {
+                            move.type = EntityFolder.USER;
+                            folders.add(move);
+                        }
+                    }
+
                     db.folder().setFoldersUser(account.id);
 
                     for (EntityFolder folder : folders) {
                         EntityFolder existing = db.folder().getFolderByName(account.id, folder.name);
                         if (existing == null) {
                             folder.account = account.id;
-                            EntityLog.log(context, "Added folder=" + folder.name + " type=" + folder.type);
+                            folder.setSpecials(account);
                             folder.id = db.folder().insertFolder(folder);
+                            EntityLog.log(context, "Added folder=" + folder.name + " type=" + folder.type);
+                            if (folder.synchronize)
+                                EntityOperation.sync(context, folder.id, true);
                         } else {
                             EntityLog.log(context, "Updated folder=" + folder.name + " type=" + folder.type);
                             db.folder().setFolderType(existing.id, folder.type);
@@ -1037,6 +1291,7 @@ public class FragmentAccount extends FragmentBase {
 
                     account.swipe_left = (left == null ? null : left.id);
                     account.swipe_right = (right == null ? null : right.id);
+                    account.move_to = (move == null ? null : move.id);
                     db.account().updateAccount(account);
 
                     db.setTransactionSuccessful();
@@ -1044,14 +1299,15 @@ public class FragmentAccount extends FragmentBase {
                     db.endTransaction();
                 }
 
-                if (reload)
-                    ServiceSynchronize.reload(context, "save account");
+                ServiceSynchronize.eval(context, "save account");
 
                 if (!synchronize) {
                     NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-                    nm.cancel("receive:" + account.id, 1);
-                    nm.cancel("alert:" + account.id, 1);
+                    nm.cancel("receive:" + account.id, NotificationHelper.NOTIFICATION_TAGGED);
+                    nm.cancel("alert:" + account.id, NotificationHelper.NOTIFICATION_TAGGED);
                 }
+
+                args.putBoolean("saved", true);
 
                 return false;
             }
@@ -1065,24 +1321,53 @@ public class FragmentAccount extends FragmentBase {
                     FragmentDialogAsk fragment = new FragmentDialogAsk();
                     fragment.setArguments(aargs);
                     fragment.setTargetFragment(FragmentAccount.this, REQUEST_SAVE);
-                    fragment.show(getFragmentManager(), "account:save");
-                } else if (getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
-                    getFragmentManager().popBackStack();
+                    fragment.show(getParentFragmentManager(), "account:save");
+                } else {
+                    Context context = getContext();
+                    if (context != null)
+                        WidgetUnified.updateData(context); // Update color stripe
+
+                    if (getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED)) {
+                        getParentFragmentManager().popBackStack();
+
+                        boolean saved = args.getBoolean("saved");
+                        if (saved && cbIdentity.isChecked()) {
+                            Bundle aargs = new Bundle();
+                            aargs.putLong("account", args.getLong("account"));
+
+                            FragmentIdentity fragment = new FragmentIdentity();
+                            fragment.setArguments(aargs);
+                            FragmentTransaction fragmentTransaction = getParentFragmentManager().beginTransaction();
+                            fragmentTransaction.setCustomAnimations(R.anim.enter_from_right, R.anim.leave_to_left);
+                            fragmentTransaction.replace(R.id.content_frame, fragment).addToBackStack("identity");
+                            fragmentTransaction.commit();
+                        }
+                    }
+                }
             }
 
             @Override
             protected void onException(Bundle args, Throwable ex) {
                 if (ex instanceof IllegalArgumentException)
-                    Snackbar.make(view, ex.getMessage(), Snackbar.LENGTH_LONG).show();
+                    Snackbar.make(view, ex.getMessage(), Snackbar.LENGTH_LONG)
+                            .setGestureInsetBottomIgnored(true).show();
                 else
                     showError(ex);
             }
-        }.execute(FragmentAccount.this, args, "account:save");
+        }.execute(this, args, "account:save");
     }
 
     private void showError(Throwable ex) {
-        tvError.setText(Helper.formatThrowable(ex, false));
-        tvError.setVisibility(View.VISIBLE);
+        tvError.setText(Log.formatThrowable(ex, false));
+        grpError.setVisibility(View.VISIBLE);
+
+        if (ex instanceof EmailService.UntrustedException) {
+            X509Certificate certificate = ((EmailService.UntrustedException) ex).getCertificate();
+            String fingerprint = EntityCertificate.getKeyFingerprint(certificate);
+            cbTrust.setTag(fingerprint);
+            cbTrust.setText(getString(R.string.title_trust, fingerprint));
+            cbTrust.setVisibility(View.VISIBLE);
+        }
 
         final EmailProvider provider = (EmailProvider) spProvider.getSelectedItem();
         if (provider != null && provider.link != null) {
@@ -1091,20 +1376,22 @@ public class FragmentAccount extends FragmentBase {
             btnHelp.setVisibility(View.VISIBLE);
         }
 
+        btnSupport.setVisibility(View.VISIBLE);
+
         if (provider != null && provider.documentation != null) {
-            tvInstructions.setText(HtmlHelper.fromHtml(provider.documentation.toString()));
+            tvInstructions.setText(HtmlHelper.fromHtml(provider.documentation.toString(), getContext()));
             tvInstructions.setVisibility(View.VISIBLE);
         }
 
-        new Handler().post(new Runnable() {
+        getMainHandler().post(new Runnable() {
             @Override
             public void run() {
+                if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
+                    return;
                 if (provider != null && provider.documentation != null)
                     scroll.smoothScrollTo(0, tvInstructions.getBottom());
-                else if (provider != null && provider.link != null)
-                    scroll.smoothScrollTo(0, btnHelp.getBottom());
                 else
-                    scroll.smoothScrollTo(0, tvError.getBottom());
+                    scroll.smoothScrollTo(0, btnSupport.getBottom());
             }
         });
     }
@@ -1112,9 +1399,11 @@ public class FragmentAccount extends FragmentBase {
     @Override
     public void onSaveInstanceState(Bundle outState) {
         outState.putInt("fair:provider", spProvider.getSelectedItemPosition());
+        outState.putString("fair:certificate", certificate);
         outState.putString("fair:password", tilPassword.getEditText().getText().toString());
         outState.putInt("fair:advanced", grpAdvanced.getVisibility());
-        outState.putInt("fair:color", color);
+        outState.putInt("fair:auth", auth);
+        outState.putString("fair:authprovider", provider);
         super.onSaveInstanceState(outState);
     }
 
@@ -1127,9 +1416,27 @@ public class FragmentAccount extends FragmentBase {
 
         new SimpleTask<EntityAccount>() {
             @Override
+            protected void onPreExecute(Bundle args) {
+                pbWait.setVisibility(View.VISIBLE);
+            }
+
+            @Override
+            protected void onPostExecute(Bundle args) {
+                // Consider previous check/save/delete as cancelled
+                pbWait.setVisibility(View.GONE);
+            }
+
+            @Override
             protected EntityAccount onExecute(Context context, Bundle args) {
                 long id = args.getLong("id");
-                return DB.getInstance(context).account().getAccount(id);
+
+                DB db = DB.getInstance(context);
+
+                List<EntityIdentity> identities = db.identity().getIdentities(id);
+                if (identities != null && identities.size() == 1)
+                    args.putString("personal", identities.get(0).name);
+
+                return db.account().getAccount(id);
             }
 
             @Override
@@ -1149,9 +1456,10 @@ public class FragmentAccount extends FragmentBase {
                         boolean found = false;
                         for (int pos = 2; pos < providers.size(); pos++) {
                             EmailProvider provider = providers.get(pos);
-                            if (provider.imap.host.equals(account.host) &&
+                            if ((provider.oauth != null) == (account.auth_type == AUTH_TYPE_OAUTH) &&
+                                    provider.imap.host.equals(account.host) &&
                                     provider.imap.port == account.port &&
-                                    provider.imap.starttls == account.starttls) {
+                                    provider.imap.starttls == (account.encryption == EmailService.ENCRYPTION_STARTTLS)) {
                                 found = true;
                                 spProvider.setTag(pos);
                                 spProvider.setSelection(pos);
@@ -1166,26 +1474,59 @@ public class FragmentAccount extends FragmentBase {
                         etPort.setText(Long.toString(account.port));
                     }
 
-                    rgEncryption.check(account != null && account.starttls ? R.id.radio_starttls : R.id.radio_ssl);
+                    if (account != null && account.encryption == EmailService.ENCRYPTION_STARTTLS)
+                        rgEncryption.check(R.id.radio_starttls);
+                    else if (account != null && account.encryption == EmailService.ENCRYPTION_NONE)
+                        rgEncryption.check(R.id.radio_none);
+                    else
+                        rgEncryption.check(R.id.radio_ssl);
+
                     cbInsecure.setChecked(account == null ? false : account.insecure);
 
                     etUser.setText(account == null ? null : account.user);
                     tilPassword.getEditText().setText(account == null ? null : account.password);
+                    tvAppPassword.setVisibility(account != null &&
+                            ("office365".equals(account.provider) || "outlook".equals(account.provider))
+                            ? View.VISIBLE : View.GONE);
+                    certificate = (account == null ? null : account.certificate_alias);
+                    tvCertificate.setText(certificate == null ? getString(R.string.title_optional) : certificate);
                     etRealm.setText(account == null ? null : account.realm);
 
+                    if (account == null || account.fingerprint == null) {
+                        cbTrust.setTag(null);
+                        cbTrust.setChecked(false);
+                    } else {
+                        cbTrust.setTag(account.fingerprint);
+                        cbTrust.setChecked(true);
+                        cbTrust.setText(getString(R.string.title_trust, account.fingerprint));
+                    }
+
                     etName.setText(account == null ? null : account.name);
+                    etCategory.setText(account == null ? null : account.category);
+                    btnColor.setColor(account == null ? null : account.color);
 
                     boolean pro = ActivityBilling.isPro(getContext());
                     cbNotify.setChecked(account != null && account.notify && pro);
                     cbNotify.setEnabled(pro);
 
                     cbSynchronize.setChecked(account == null ? true : account.synchronize);
+                    cbOnDemand.setChecked(account == null ? false : account.ondemand);
                     cbPrimary.setChecked(account == null ? false : account.primary);
                     cbBrowse.setChecked(account == null ? true : account.browse);
+                    cbAutoSeen.setChecked(account == null ? true : account.auto_seen);
                     etInterval.setText(account == null ? "" : Long.toString(account.poll_interval));
                     cbPartialFetch.setChecked(account == null ? true : account.partial_fetch);
+                    cbIgnoreSize.setChecked(account == null ? false : account.ignore_size);
 
-                    color = (account == null || account.color == null ? Color.TRANSPARENT : account.color);
+                    if (account != null && account.use_date)
+                        rgDate.check(R.id.radio_date_header);
+                    else if (account != null && account.use_received)
+                        rgDate.check(R.id.radio_received_header);
+                    else
+                        rgDate.check(R.id.radio_server_time);
+
+                    auth = (account == null ? AUTH_TYPE_PASSWORD : account.auth_type);
+                    provider = (account == null ? null : account.provider);
 
                     new SimpleTask<EntityAccount>() {
                         @Override
@@ -1201,31 +1542,81 @@ public class FragmentAccount extends FragmentBase {
 
                         @Override
                         protected void onException(Bundle args, Throwable ex) {
-                            Helper.unexpectedError(getFragmentManager(), ex);
+                            Log.unexpectedError(getParentFragmentManager(), ex);
                         }
                     }.execute(FragmentAccount.this, new Bundle(), "account:primary");
                 } else {
-                    int provider = savedInstanceState.getInt("fair:provider");
-                    spProvider.setTag(provider);
-                    spProvider.setSelection(provider);
+                    int p = savedInstanceState.getInt("fair:provider");
+                    spProvider.setTag(p);
+                    spProvider.setSelection(p);
+
+                    certificate = savedInstanceState.getString("fair:certificate");
+                    tvCertificate.setText(certificate == null ? getString(R.string.title_optional) : certificate);
 
                     tilPassword.getEditText().setText(savedInstanceState.getString("fair:password"));
                     grpAdvanced.setVisibility(savedInstanceState.getInt("fair:advanced"));
-                    color = savedInstanceState.getInt("fair:color");
+                    auth = savedInstanceState.getInt("fair:auth");
+                    provider = savedInstanceState.getString("fair:authprovider");
                 }
 
                 Helper.setViewsEnabled(view, true);
 
-                setColor(color);
+                if (auth != AUTH_TYPE_PASSWORD) {
+                    etUser.setEnabled(false);
+                    tilPassword.getEditText().setEnabled(false);
+                    btnCertificate.setEnabled(false);
+
+                    tilPassword.setEndIconDrawable(R.drawable.twotone_edit_24);
+                    tilPassword.setEndIconOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View view) {
+                            Fragment fragment;
+                            if (auth == AUTH_TYPE_GMAIL)
+                                fragment = new FragmentGmail();
+                            else if (auth == AUTH_TYPE_OAUTH)
+                                fragment = new FragmentOAuth();
+                            else {
+                                Log.e("Unknown auth=" + auth);
+                                return;
+                            }
+
+                            try {
+                                Bundle aargs = new Bundle();
+                                if (auth == AUTH_TYPE_OAUTH) {
+                                    if (account == null)
+                                        throw new IllegalArgumentException("Account missing");
+
+                                    EmailProvider provider =
+                                            EmailProvider.getProvider(view.getContext(), account.provider);
+                                    aargs.putString("id", provider.id);
+                                    aargs.putString("name", provider.description);
+                                    aargs.putString("privacy", provider.oauth.privacy);
+                                    aargs.putBoolean("askAccount", provider.oauth.askAccount);
+                                }
+                                aargs.putString("personal", args.getString("personal"));
+                                aargs.putString("address", etUser.getText().toString());
+                                aargs.putBoolean("update", true);
+
+                                fragment.setArguments(aargs);
+
+                                getParentFragmentManager().popBackStack();
+                                FragmentTransaction fragmentTransaction = getParentFragmentManager().beginTransaction();
+                                fragmentTransaction.replace(R.id.content_frame, fragment).addToBackStack("quick");
+                                fragmentTransaction.commit();
+                            } catch (Throwable ex) {
+                                Log.e(ex);
+                            }
+                        }
+                    });
+                }
+
+                cbOnDemand.setEnabled(cbSynchronize.isChecked());
                 cbPrimary.setEnabled(cbSynchronize.isChecked());
 
-                // Consider previous check/save/delete as cancelled
-                pbWait.setVisibility(View.GONE);
+                if (copy < 0 && account != null) {
+                    args.putLong("account", account.id);
 
-                if (copy < 0) {
-                    args.putLong("account", account == null ? -1 : account.id);
-
-                    new SimpleTask<List<EntityFolder>>() {
+                    final SimpleTask task = new SimpleTask<List<EntityFolder>>() {
                         @Override
                         protected List<EntityFolder> onExecute(Context context, Bundle args) {
                             long account = args.getLong("account");
@@ -1248,15 +1639,23 @@ public class FragmentAccount extends FragmentBase {
 
                         @Override
                         protected void onException(Bundle args, Throwable ex) {
-                            Helper.unexpectedError(getFragmentManager(), ex);
+                            Log.unexpectedError(getParentFragmentManager(), ex);
                         }
-                    }.execute(FragmentAccount.this, args, "account:folders");
+                    };
+
+                    // Load after provider has been selected
+                    getMainHandler().post(new Runnable() {
+                        @Override
+                        public void run() {
+                            task.execute(FragmentAccount.this, args, "account:folders");
+                        }
+                    });
                 }
             }
 
             @Override
             protected void onException(Bundle args, Throwable ex) {
-                Helper.unexpectedError(getFragmentManager(), ex);
+                Log.unexpectedError(getParentFragmentManager(), ex);
             }
         }.execute(this, args, "account:get");
     }
@@ -1275,23 +1674,22 @@ public class FragmentAccount extends FragmentBase {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case R.id.menu_delete:
-                onMenuDelete();
-                return true;
-            default:
-                return super.onOptionsItemSelected(item);
+        if (item.getItemId() == R.id.menu_delete) {
+            onMenuDelete();
+            return true;
         }
+        return super.onOptionsItemSelected(item);
     }
 
     private void onMenuDelete() {
         Bundle aargs = new Bundle();
         aargs.putString("question", getString(R.string.title_account_delete));
+        aargs.putBoolean("warning", true);
 
         FragmentDialogAsk fragment = new FragmentDialogAsk();
         fragment.setArguments(aargs);
         fragment.setTargetFragment(FragmentAccount.this, REQUEST_DELETE);
-        fragment.show(getFragmentManager(), "account:delete");
+        fragment.show(getParentFragmentManager(), "account:delete");
     }
 
     @Override
@@ -1304,22 +1702,28 @@ public class FragmentAccount extends FragmentBase {
                     if (resultCode == RESULT_OK && data != null) {
                         if (ActivityBilling.isPro(getContext())) {
                             Bundle args = data.getBundleExtra("args");
-                            setColor(args.getInt("color"));
+                            btnColor.setColor(args.getInt("color"));
                         } else
                             startActivity(new Intent(getContext(), ActivityBilling.class));
                     }
                     break;
                 case REQUEST_SAVE:
                     if (resultCode == RESULT_OK) {
-                        new Handler().post(new Runnable() {
+                        final boolean save = (btnSave.getVisibility() == View.VISIBLE);
+                        getMainHandler().post(new Runnable() {
                             @Override
                             public void run() {
-                                scroll.smoothScrollTo(0, btnSave.getBottom());
+                                if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
+                                    return;
+                                scroll.smoothScrollTo(0, (save ? btnSave : btnCheck).getBottom());
                             }
                         });
-                        onSave(false);
+                        if (save)
+                            onSave(false);
+                        else
+                            onCheck();
                     } else if (getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
-                        getFragmentManager().popBackStack();
+                        getParentFragmentManager().popBackStack();
                     break;
                 case REQUEST_DELETE:
                     if (resultCode == RESULT_OK)
@@ -1329,15 +1733,6 @@ public class FragmentAccount extends FragmentBase {
         } catch (Throwable ex) {
             Log.e(ex);
         }
-    }
-
-    private void setColor(int color) {
-        this.color = color;
-
-        GradientDrawable border = new GradientDrawable();
-        border.setColor(color);
-        border.setStroke(1, Helper.resolveColor(getContext(), R.attr.colorSeparator));
-        vwColor.setBackground(border);
     }
 
     private void onDelete() {
@@ -1358,7 +1753,7 @@ public class FragmentAccount extends FragmentBase {
                 DB db = DB.getInstance(context);
                 db.account().setAccountTbd(id);
 
-                ServiceSynchronize.reload(context, "delete account");
+                ServiceSynchronize.eval(context, "delete account");
 
                 return null;
             }
@@ -1366,14 +1761,14 @@ public class FragmentAccount extends FragmentBase {
             @Override
             protected void onExecuted(Bundle args, Void data) {
                 if (getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
-                    getFragmentManager().popBackStack();
+                    getParentFragmentManager().popBackStack();
             }
 
             @Override
             protected void onException(Bundle args, Throwable ex) {
-                Helper.unexpectedError(getFragmentManager(), ex);
+                Log.unexpectedError(getParentFragmentManager(), ex);
             }
-        }.execute(FragmentAccount.this, args, "account:delete");
+        }.execute(this, args, "account:delete");
     }
 
     private void setFolders(List<EntityFolder> _folders, EntityAccount account) {
@@ -1405,27 +1800,15 @@ public class FragmentAccount extends FragmentBase {
                     spTrash.setSelection(pos);
                 else if (EntityFolder.JUNK.equals(folder.type))
                     spJunk.setSelection(pos);
+
+                if (account != null &&
+                        account.move_to != null && account.move_to.equals(folder.id))
+                    spMove.setSelection(pos);
             }
         }
 
         {
-            List<EntityFolder> folders = new ArrayList<>();
-
-            EntityFolder none = new EntityFolder();
-            none.id = 0L;
-            none.name = "-";
-            folders.add(none);
-
-            EntityFolder ask = new EntityFolder();
-            ask.id = SWIPE_ACTION_ASK;
-            ask.name = getString(R.string.title_ask_what);
-            folders.add(ask);
-
-            EntityFolder seen = new EntityFolder();
-            seen.id = SWIPE_ACTION_SEEN;
-            seen.name = getString(R.string.title_seen);
-            folders.add(seen);
-
+            List<EntityFolder> folders = getFolderActions(getContext());
             folders.addAll(_folders);
 
             adapterSwipe.clear();
@@ -1453,11 +1836,68 @@ public class FragmentAccount extends FragmentBase {
             }
         }
 
-        grpFolders.setVisibility(_folders.size() > 1 ? View.VISIBLE : View.GONE);
-        btnSave.setVisibility(_folders.size() > 1 ? View.VISIBLE : View.GONE);
+        cbIdentity.setChecked(account == null);
+
+        grpFolders.setVisibility(View.VISIBLE);
+        btnSave.setVisibility(View.VISIBLE);
+        cbIdentity.setVisibility(View.VISIBLE);
+
+        if (cbTrust.isChecked())
+            cbTrust.setVisibility(View.VISIBLE);
     }
 
-    private class CheckResult {
+    static List<EntityFolder> getFolderActions(Context context) {
+        List<EntityFolder> folders = new ArrayList<>();
+
+        EntityFolder none = new EntityFolder();
+        none.id = 0L;
+        none.name = "-";
+        folders.add(none);
+
+        EntityFolder ask = new EntityFolder();
+        ask.id = EntityMessage.SWIPE_ACTION_ASK;
+        ask.name = context.getString(R.string.title_ask_what);
+        folders.add(ask);
+
+        EntityFolder seen = new EntityFolder();
+        seen.id = EntityMessage.SWIPE_ACTION_SEEN;
+        seen.name = context.getString(R.string.title_seen);
+        folders.add(seen);
+
+        EntityFolder flag = new EntityFolder();
+        flag.id = EntityMessage.SWIPE_ACTION_FLAG;
+        flag.name = context.getString(R.string.title_flag);
+        folders.add(flag);
+
+        EntityFolder snooze = new EntityFolder();
+        snooze.id = EntityMessage.SWIPE_ACTION_SNOOZE;
+        snooze.name = context.getString(R.string.title_snooze_now);
+        folders.add(snooze);
+
+        EntityFolder hide = new EntityFolder();
+        hide.id = EntityMessage.SWIPE_ACTION_HIDE;
+        hide.name = context.getString(R.string.title_hide);
+        folders.add(hide);
+
+        EntityFolder move = new EntityFolder();
+        move.id = EntityMessage.SWIPE_ACTION_MOVE;
+        move.name = context.getString(R.string.title_move);
+        folders.add(move);
+
+        EntityFolder junk = new EntityFolder();
+        junk.id = EntityMessage.SWIPE_ACTION_JUNK;
+        junk.name = context.getString(R.string.title_report_spam);
+        folders.add(junk);
+
+        EntityFolder delete = new EntityFolder();
+        delete.id = EntityMessage.SWIPE_ACTION_DELETE;
+        delete.name = context.getString(R.string.title_delete_permanently);
+        folders.add(delete);
+
+        return folders;
+    }
+
+    private static class CheckResult {
         EntityAccount account;
         List<EntityFolder> folders;
         boolean idle;

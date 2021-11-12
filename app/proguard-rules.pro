@@ -27,16 +27,24 @@
 #AndroidX
 -keep class androidx.appcompat.widget.** {*;}
 -keep class androidx.appcompat.app.AppCompatViewInflater {<init>(...);}
--keepclassmembers class * implements android.os.Parcelable {static ** CREATOR;}
 #android.os.BadParcelableException: Parcelable protocol requires a Parcelable.Creator object called CREATOR on class androidx...
--keep class androidx.work.impl.** {*;} #Due to compiling ROOM inline
+-keepclassmembers class * implements android.os.Parcelable {static ** CREATOR;}
+#ROOM inline compilation
+-keep class androidx.work.impl.** {*;}
+#Stack traces, InvalidationTracker reflection
 -keepnames class androidx.** {*;}
+
+-dontnote androidx.**
+-dontnote android.support.**
+-dontnote kotlin.**
 
 #IAB
 -keep class com.android.billingclient.** {*;}
 -keepnames class com.android.billingclient.** {*;}
 -keep class com.android.vending.billing.** {*;}
 -keepnames class com.android.vending.billing.** {*;}
+
+-dontnote com.android.billingclient.**
 
 #JavaMail
 -keep class javax.** {*;}
@@ -56,6 +64,14 @@
 -keeppackagenames org.jsoup.nodes
 -keepnames class org.jsoup.** {*;}
 
+#CSS Parser
+-keepnames class com.steadystate.css.** {*;}
+-keepnames class org.w3c.css.** {*;}
+-keepnames class org.w3c.dom.** {*;}
+
+#CSS Parser / biweekly
+-dontwarn org.w3c.dom.**
+
 #JCharset
 -keep class net.freeutils.charset.** {*;}
 
@@ -72,6 +88,24 @@
 #biweekly
 -keepnames class biweekly.** {*;}
 -dontwarn biweekly.io.json.**
+-dontwarn com.fasterxml.jackson.**
+
+#MSAL
+-keep class com.microsoft.aad.adal.** {*;}
+-keep class com.microsoft.identity.common.** {*;}
+-dontwarn com.nimbusds.jose.**
+-keepclassmembers enum * {*;} #GSON
+
+#Bouncy castle
+-keep class org.bouncycastle.** {*;}
+-keepnames class org.bouncycastle.* {*;}
+-dontwarn org.bouncycastle.cert.dane.**
+-dontwarn org.bouncycastle.jce.provider.**
+-dontwarn org.bouncycastle.x509.util.**
+
+#AppAuth
+-keep class net.openid.appauth.** {*;}
+-keepnames class net.openid.appauth.* {*;}
 
 #Notes
 -dontnote com.google.android.material.**
@@ -82,3 +116,24 @@
 -dontnote com.github.chrisbanes.photoview.**
 -dontnote com.bugsnag.android.**
 -dontnote biweekly.io.**
+
+#SASL
+-keep class com.sun.mail.imap.protocol.IMAPSaslAuthenticator {*;}
+-keep class com.sun.mail.smtp.SMTPSaslAuthenticator {*;}
+
+#Color picker
+-keepnames class com.flask.colorpicker.** {*;}
+
+#overscroll-decor
+-keepnames class me.everything.android.ui.overscroll.** {*;}
+
+#Markwon
+-keep class io.noties.markwon.** {*;}
+-keep class org.commonmark.** {*;}
+-keepnames class io.noties.markwon.** {*;}
+-keepnames class org.commonmark.** {*;}
+
+#Amazon IAP
+-dontwarn com.amazon.**
+-keep class com.amazon.** {*;}
+-keepattributes *Annotation*

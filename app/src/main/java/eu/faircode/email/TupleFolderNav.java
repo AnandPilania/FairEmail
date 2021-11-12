@@ -16,7 +16,7 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
@@ -25,13 +25,14 @@ import java.io.Serializable;
 import java.text.Collator;
 import java.util.Comparator;
 import java.util.Locale;
+import java.util.Objects;
 
 public class TupleFolderNav extends EntityFolder implements Serializable {
     public Integer accountOrder;
     public String accountName;
     public Integer accountColor;
+    public int messages;
     public int unseen;
-    public int snoozed;
     public int operations;
     public int executing;
 
@@ -52,9 +53,9 @@ public class TupleFolderNav extends EntityFolder implements Serializable {
                 if (f1.accountName == null && f2.accountName == null)
                     return 0;
                 else if (f1.accountName == null)
-                    return 1;
-                else if (f2.accountName == null)
                     return -1;
+                else if (f2.accountName == null)
+                    return 1;
 
                 int fo = Integer.compare(
                         f1.order == null ? -1 : f1.order,
@@ -75,5 +76,21 @@ public class TupleFolderNav extends EntityFolder implements Serializable {
                 return base.compare(o1, o2);
             }
         };
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj instanceof TupleFolderNav) {
+            TupleFolderNav other = (TupleFolderNav) obj;
+            return (super.equals(other) &&
+                    Objects.equals(this.accountOrder, other.accountOrder) &&
+                    Objects.equals(this.accountName, other.accountName) &&
+                    Objects.equals(this.accountColor, other.accountColor) &&
+                    this.messages == other.messages &&
+                    this.unseen == other.unseen &&
+                    this.operations == other.operations &&
+                    this.executing == other.executing);
+        } else
+            return false;
     }
 }

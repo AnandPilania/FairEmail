@@ -16,15 +16,12 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
-import android.net.Uri;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
@@ -34,19 +31,16 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
-import androidx.core.content.FileProvider;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.Lifecycle;
 import androidx.lifecycle.LifecycleObserver;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.OnLifecycleEvent;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ListUpdateCallback;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.android.material.snackbar.Snackbar;
-
-import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -60,11 +54,10 @@ public class AdapterImage extends RecyclerView.Adapter<AdapterImage.ViewHolder> 
 
     private List<EntityAttachment> items = new ArrayList<>();
 
-    public class ViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener {
+    public class ViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener, View.OnLongClickListener {
         private View view;
         private ImageView ivImage;
         private TextView tvCaption;
-        private TextView tvType;
 
         ViewHolder(View itemView) {
             super(itemView);
@@ -72,33 +65,34 @@ public class AdapterImage extends RecyclerView.Adapter<AdapterImage.ViewHolder> 
             view = itemView.findViewById(R.id.clItem);
             ivImage = itemView.findViewById(R.id.ivImage);
             tvCaption = itemView.findViewById(R.id.tvCaption);
-            tvType = itemView.findViewById(R.id.tvType);
         }
 
         private void wire() {
             view.setOnClickListener(this);
+            view.setOnLongClickListener(this);
         }
 
         private void unwire() {
             view.setOnClickListener(null);
+            view.setOnLongClickListener(null);
         }
 
         private void bindTo(EntityAttachment attachment) {
             if (attachment.available) {
-                Bitmap bm = Helper.decodeImage(attachment.getFile(context),
+                Bitmap bm = ImageHelper.decodeImage(
+                        attachment.getFile(context), attachment.getMimeType(),
                         context.getResources().getDisplayMetrics().widthPixels);
                 if (bm == null)
-                    ivImage.setImageResource(R.drawable.baseline_broken_image_24);
+                    ivImage.setImageResource(R.drawable.twotone_broken_image_24);
                 else
                     ivImage.setImageBitmap(bm);
             } else
                 ivImage.setImageResource(attachment.progress == null
-                        ? R.drawable.baseline_image_24 : R.drawable.baseline_hourglass_empty_24);
+                        ? R.drawable.twotone_image_24 : R.drawable.twotone_hourglass_top_24);
 
             tvCaption.setVisibility(TextUtils.isEmpty(attachment.name) ? View.GONE : View.VISIBLE);
 
             tvCaption.setText(attachment.name);
-            tvType.setText(attachment.type);
         }
 
         @Override
@@ -108,42 +102,9 @@ public class AdapterImage extends RecyclerView.Adapter<AdapterImage.ViewHolder> 
                 return;
 
             EntityAttachment attachment = items.get(pos);
-            if (attachment.available) {
-                // Build file name
-                File file = attachment.getFile(context);
-
-                // https://developer.android.com/reference/android/support/v4/content/FileProvider
-                final Uri uri = FileProvider.getUriForFile(context, BuildConfig.APPLICATION_ID, file);
-                Log.i("uri=" + uri);
-
-                // Build intent
-                final Intent intent = new Intent(Intent.ACTION_VIEW);
-                intent.setDataAndType(uri, attachment.type);
-                intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                if (!TextUtils.isEmpty(attachment.name))
-                    intent.putExtra(Intent.EXTRA_TITLE, attachment.name);
-                Log.i("Sharing " + file + " type=" + attachment.type);
-                Log.i("Intent=" + intent);
-
-                // Get targets
-                PackageManager pm = context.getPackageManager();
-                List<ResolveInfo> ris = pm.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
-                for (ResolveInfo ri : ris) {
-                    Log.i("Target=" + ri);
-                    context.grantUriPermission(ri.activityInfo.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                }
-
-                // Check if viewer available
-                if (ris.size() == 0) {
-                    Snackbar.make(
-                            parentFragment.getView(),
-                            context.getString(R.string.title_no_viewer, attachment.type),
-                            Snackbar.LENGTH_LONG).show();
-                    return;
-                }
-
-                context.startActivity(intent);
-            } else {
+            if (attachment.available)
+                Helper.share(context, attachment.getFile(context), attachment.getMimeType(), attachment.name);
+            else {
                 if (attachment.progress == null) {
                     Bundle args = new Bundle();
                     args.putLong("id", attachment.id);
@@ -153,32 +114,58 @@ public class AdapterImage extends RecyclerView.Adapter<AdapterImage.ViewHolder> 
                         @Override
                         protected Void onExecute(Context context, Bundle args) {
                             long id = args.getLong("id");
-                            long message = args.getLong("message");
+                            long mid = args.getLong("message");
 
                             DB db = DB.getInstance(context);
                             try {
                                 db.beginTransaction();
 
-                                db.attachment().setProgress(id, 0);
+                                EntityMessage message = db.message().getMessage(mid);
+                                if (message == null || message.uid == null)
+                                    return null;
 
-                                EntityMessage msg = db.message().getMessage(message);
-                                EntityOperation.queue(context, msg, EntityOperation.ATTACHMENT, id);
+                                EntityAttachment attachment = db.attachment().getAttachment(id);
+                                if (attachment == null || attachment.progress != null || attachment.available)
+                                    return null;
+
+                                EntityOperation.queue(context, message, EntityOperation.ATTACHMENT, id);
 
                                 db.setTransactionSuccessful();
                             } finally {
                                 db.endTransaction();
                             }
 
+                            ServiceSynchronize.eval(context, "attachment");
+
                             return null;
                         }
 
                         @Override
                         protected void onException(Bundle args, Throwable ex) {
-                            Helper.unexpectedError(parentFragment.getFragmentManager(), ex);
+                            Log.unexpectedError(parentFragment.getParentFragmentManager(), ex);
                         }
                     }.execute(context, owner, args, "image:fetch");
                 }
             }
+        }
+
+        @Override
+        public boolean onLongClick(View v) {
+            int pos = getAdapterPosition();
+            if (pos == RecyclerView.NO_POSITION)
+                return false;
+
+            EntityAttachment attachment = items.get(pos);
+            if (!attachment.available)
+                return false;
+
+            LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(context);
+            lbm.sendBroadcast(
+                    new Intent(FragmentBase.ACTION_STORE_ATTACHMENT)
+                            .putExtra("id", attachment.id)
+                            .putExtra("name", Helper.sanitizeFilename(attachment.name))
+                            .putExtra("type", attachment.getMimeType()));
+            return true;
         }
     }
 
@@ -193,8 +180,9 @@ public class AdapterImage extends RecyclerView.Adapter<AdapterImage.ViewHolder> 
         owner.getLifecycle().addObserver(new LifecycleObserver() {
             @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
             public void onDestroyed() {
-                Log.i(AdapterImage.this + " parent destroyed");
+                Log.d(AdapterImage.this + " parent destroyed");
                 AdapterImage.this.parentFragment = null;
+                owner.getLifecycle().removeObserver(this);
             }
         });
     }
@@ -216,28 +204,28 @@ public class AdapterImage extends RecyclerView.Adapter<AdapterImage.ViewHolder> 
         diff.dispatchUpdatesTo(new ListUpdateCallback() {
             @Override
             public void onInserted(int position, int count) {
-                Log.i("Inserted @" + position + " #" + count);
+                Log.d("Inserted @" + position + " #" + count);
             }
 
             @Override
             public void onRemoved(int position, int count) {
-                Log.i("Removed @" + position + " #" + count);
+                Log.d("Removed @" + position + " #" + count);
             }
 
             @Override
             public void onMoved(int fromPosition, int toPosition) {
-                Log.i("Moved " + fromPosition + ">" + toPosition);
+                Log.d("Moved " + fromPosition + ">" + toPosition);
             }
 
             @Override
             public void onChanged(int position, int count, Object payload) {
-                Log.i("Changed @" + position + " #" + count);
+                Log.d("Changed @" + position + " #" + count);
             }
         });
         diff.dispatchUpdatesTo(this);
     }
 
-    private class DiffCallback extends DiffUtil.Callback {
+    private static class DiffCallback extends DiffUtil.Callback {
         private List<EntityAttachment> prev = new ArrayList<>();
         private List<EntityAttachment> next = new ArrayList<>();
 

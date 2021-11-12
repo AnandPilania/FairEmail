@@ -14,16 +14,58 @@
         app:layout_constraintTop_toTopOf="parent" />
 
     <ImageButton
-        android:id="@+id/ivExpanderAddress"
+        android:id="@+id/ibExpanderAddress"
         android:layout_width="0dp"
         android:layout_height="24dp"
         android:background="?android:attr/selectableItemBackground"
         android:contentDescription="@string/title_legend_expander"
-        android:src="@drawable/expander"
         android:visibility="visible"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/vSeparatorAddress" />
+        app:layout_constraintTop_toBottomOf="@id/vSeparatorAddress"
+        app:srcCompat="@drawable/expander" />
+
+    <eu.faircode.email.ViewImageHint
+        android:id="@+id/ivPlain"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:contentDescription="@string/title_legend_plain_only"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/ibExpanderAddress"
+        app:srcCompat="@drawable/twotone_notes_24" />
+
+    <ImageButton
+        android:id="@+id/ibReceipt"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/title_legend_receipt"
+        android:tooltipText="@string/title_legend_receipt"
+        app:layout_constraintStart_toEndOf="@id/ivPlain"
+        app:layout_constraintTop_toBottomOf="@id/ibExpanderAddress"
+        app:srcCompat="@drawable/twotone_playlist_add_check_24" />
+
+    <eu.faircode.email.ViewImageHint
+        android:id="@+id/ivAutoSubmitted"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:contentDescription="@string/title_legend_auto_submitted"
+        app:layout_constraintStart_toEndOf="@id/ibReceipt"
+        app:layout_constraintTop_toBottomOf="@id/ibExpanderAddress"
+        app:srcCompat="@drawable/twotone_remove_circle_outline_24" />
+
+    <eu.faircode.email.ViewImageHint
+        android:id="@+id/ivBrowsed"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:contentDescription="@string/title_legend_browsed"
+        app:layout_constraintStart_toEndOf="@id/ivAutoSubmitted"
+        app:layout_constraintTop_toBottomOf="@id/ibExpanderAddress"
+        app:srcCompat="@drawable/twotone_playlist_add_24" />
 
     <ImageButton
         android:id="@+id/ibSearchContact"
@@ -31,9 +73,11 @@
         android:layout_height="wrap_content"
         android:layout_marginEnd="12dp"
         android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:src="@drawable/baseline_search_24"
+        android:contentDescription="@string/title_legend_similar"
+        android:tooltipText="@string/title_legend_similar"
         app:layout_constraintEnd_toStartOf="@+id/ibNotifyContact"
-        app:layout_constraintTop_toBottomOf="@id/ivExpanderAddress" />
+        app:layout_constraintTop_toBottomOf="@id/ibExpanderAddress"
+        app:srcCompat="@drawable/twotone_search_24" />
 
     <ImageButton
         android:id="@+id/ibNotifyContact"
@@ -42,9 +86,22 @@
         android:layout_marginEnd="12dp"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/title_legend_notify"
-        android:src="@drawable/baseline_notifications_24"
+        android:tooltipText="@string/title_legend_notify"
+        app:layout_constraintEnd_toStartOf="@+id/ibPinContact"
+        app:layout_constraintTop_toBottomOf="@id/ibExpanderAddress"
+        app:srcCompat="@drawable/twotone_notifications_24" />
+
+    <ImageButton
+        android:id="@+id/ibPinContact"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="12dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/title_pin"
+        android:tooltipText="@string/title_pin"
         app:layout_constraintEnd_toStartOf="@+id/ibAddContact"
-        app:layout_constraintTop_toBottomOf="@id/ivExpanderAddress" />
+        app:layout_constraintTop_toBottomOf="@id/ibExpanderAddress"
+        app:srcCompat="@drawable/twotone_person_pin_circle_24" />
 
     <ImageButton
         android:id="@+id/ibAddContact"
@@ -53,29 +110,81 @@
         android:layout_marginEnd="12dp"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/title_legend_contacts"
-        android:src="@drawable/baseline_import_contacts_24"
+        android:tooltipText="@string/title_legend_contacts"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/ivExpanderAddress" />
+        app:layout_constraintTop_toBottomOf="@id/ibExpanderAddress"
+        app:srcCompat="@drawable/twotone_import_contacts_24" />
 
     <androidx.constraintlayout.widget.Barrier
         android:id="@+id/barrier_action"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         app:barrierDirection="bottom"
-        app:constraint_referenced_ids="ibSearchContact,ibNotifyContact,ibAddContact" />
+        app:constraint_referenced_ids="ivPlain,ibReceipt,ivAutoSubmitted,ivBrowsed,ibSearchContact,ibNotifyContact,ibPinContact,ibAddContact" />
 
-    <TextView
-        android:id="@+id/tvFromExTitle"
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvSubmitterTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="6dp"
-        android:text="@string/title_from"
+        android:labelFor="@+id/tvSubmitter"
+        android:text="@string/title_submitter"
         android:textAppearance="@style/TextAppearance.AppCompat.Small"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/barrier_action" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvSubmitter"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:layout_marginEnd="6dp"
+        android:text="Submitter"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        android:textIsSelectable="true"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
+        app:layout_constraintTop_toBottomOf="@id/barrier_action" />
+
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvDeliveredToTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:labelFor="@+id/tvFromEx"
+        android:text="@string/title_delivered_to"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        android:textStyle="bold"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvSubmitter" />
+
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvDeliveredTo"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:layout_marginEnd="6dp"
+        android:text="Delivered to"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        android:textIsSelectable="true"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
+        app:layout_constraintTop_toBottomOf="@id/tvSubmitter" />
+
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvFromExTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:labelFor="@+id/tvFromEx"
+        android:text="@string/title_from"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        android:textStyle="bold"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvDeliveredTo" />
+
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvFromEx"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -86,20 +195,21 @@
         android:textIsSelectable="true"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
-        app:layout_constraintTop_toBottomOf="@id/barrier_action" />
+        app:layout_constraintTop_toBottomOf="@id/tvDeliveredTo" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvToTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="6dp"
+        android:labelFor="@+id/tvTo"
         android:text="@string/title_to"
         android:textAppearance="@style/TextAppearance.AppCompat.Small"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tvFromEx" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvTo"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -112,18 +222,19 @@
         app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
         app:layout_constraintTop_toBottomOf="@id/tvFromEx" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvReplyToTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="6dp"
+        android:labelFor="@+id/tvReplyTo"
         android:text="@string/title_reply_to"
         android:textAppearance="@style/TextAppearance.AppCompat.Small"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tvTo" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvReplyTo"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -136,18 +247,19 @@
         app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
         app:layout_constraintTop_toBottomOf="@id/tvTo" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvCcTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="6dp"
+        android:labelFor="@+id/tvCc"
         android:text="@string/title_cc"
         android:textAppearance="@style/TextAppearance.AppCompat.Small"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tvReplyTo" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvCc"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -160,18 +272,19 @@
         app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
         app:layout_constraintTop_toBottomOf="@id/tvReplyTo" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvBccTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="6dp"
+        android:labelFor="@+id/tvBcc"
         android:text="@string/title_bcc"
         android:textAppearance="@style/TextAppearance.AppCompat.Small"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tvCc" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvBcc"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -184,18 +297,19 @@
         app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
         app:layout_constraintTop_toBottomOf="@id/tvCc" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvIdentityTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="6dp"
+        android:labelFor="@+id/tvIdentity"
         android:text="@string/title_via_identity"
         android:textAppearance="@style/TextAppearance.AppCompat.Small"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tvBcc" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvIdentity"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -208,19 +322,20 @@
         app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
         app:layout_constraintTop_toBottomOf="@id/tvBcc" />
 
-    <TextView
-        android:id="@+id/tvTimeExTitle"
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvSentTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="6dp"
-        android:text="@string/title_received"
+        android:labelFor="@+id/tvSent"
+        android:text="@string/title_sent"
         android:textAppearance="@style/TextAppearance.AppCompat.Small"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tvIdentity" />
 
-    <TextView
-        android:id="@+id/tvTimeEx"
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvSent"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="6dp"
@@ -232,18 +347,69 @@
         app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
         app:layout_constraintTop_toBottomOf="@id/tvIdentity" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvReceivedTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:labelFor="@+id/tvReceived"
+        android:text="@string/title_received"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        android:textStyle="bold"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvSent" />
+
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvReceived"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:layout_marginEnd="6dp"
+        android:text="12:34:56"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        android:textIsSelectable="true"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
+        app:layout_constraintTop_toBottomOf="@id/tvSent" />
+
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvStoredTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:labelFor="@+id/tvStored"
+        android:text="@string/title_stored"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        android:textStyle="bold"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvReceived" />
+
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvStored"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:layout_marginEnd="6dp"
+        android:text="12:34:56"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        android:textIsSelectable="true"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
+        app:layout_constraintTop_toBottomOf="@id/tvReceived" />
+
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvSizeExTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="6dp"
+        android:labelFor="@+id/tvSizeEx"
         android:text="@string/title_size"
         android:textAppearance="@style/TextAppearance.AppCompat.Small"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tvTimeEx" />
+        app:layout_constraintTop_toBottomOf="@id/tvStored" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvSizeEx"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -254,7 +420,32 @@
         android:textIsSelectable="true"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
-        app:layout_constraintTop_toBottomOf="@id/tvTimeEx" />
+        app:layout_constraintTop_toBottomOf="@id/tvStored" />
+
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvLanguageTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:labelFor="@+id/tvSizeEx"
+        android:text="@string/title_language"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        android:textStyle="bold"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvSizeEx" />
+
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvLanguage"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:layout_marginEnd="6dp"
+        android:text="English"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        android:textIsSelectable="true"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/barrier_addresses"
+        app:layout_constraintTop_toBottomOf="@id/tvSizeEx" />
 
     <androidx.constraintlayout.widget.Barrier
         android:id="@+id/barrier_addresses"
@@ -262,12 +453,14 @@
         android:layout_height="wrap_content"
         app:barrierDirection="end"
         app:constraint_referenced_ids="
+            tvSubmitterTitle,tvDeliveredToTitle,
             tvFromExTitle,tvToTitle,tvReplyToTitle,
             tvCcTitle,tvBccTitle,
             tvIdentityTitle,
-            tvTimeExTitle,tvSizeExTitle" />
+            tvSentTitle,tvReceivedTitle,tvStoredTitle,
+            tvSizeExTitle, tvLanguageTitle" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvSubjectEx"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -278,9 +471,9 @@
         android:textIsSelectable="true"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tvSizeEx" />
+        app:layout_constraintTop_toBottomOf="@id/tvLanguage" />
 
-    <TextView
+    <eu.faircode.email.FixedTextView
         android:id="@+id/tvFlags"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -293,8 +486,8 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tvSubjectEx" />
 
-    <TextView
-        android:id="@+id/tvKeywords"
+    <eu.faircode.email.FixedTextView
+        android:id="@+id/tvKeywordsEx"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="6dp"
@@ -310,5 +503,5 @@
         android:id="@+id/grpAddresses"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        app:constraint_referenced_ids="vSeparatorAddress,ivExpanderAddress" />
+        app:constraint_referenced_ids="vSeparatorAddress,ibExpanderAddress" />
 </androidx.constraintlayout.widget.ConstraintLayout>

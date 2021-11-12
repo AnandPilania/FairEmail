@@ -1,690 +1,948 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".ActivityView">
+    tools:context="eu.faircode.email.ActivityView">
 
-    <ScrollView
-        android:id="@+id/scroll"
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:orientation="vertical"
-        android:padding="12dp"
-        android:scrollbarStyle="outsideOverlay"
-        app:layout_constraintBottom_toTopOf="@+id/bottom_navigation"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent">
+        android:layout_height="match_parent"
+        app:layout_behavior="eu.faircode.email.BehaviorBottomPadding">
 
-        <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/content"
+        <eu.faircode.email.ScrollViewEx
+            android:id="@+id/scroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:orientation="vertical"
+            android:padding="12dp"
+            android:scrollbarStyle="outsideOverlay"
+            app:layout_constraintBottom_toTopOf="@+id/bottom_navigation"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent">
+
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:id="@+id/content"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:descendantFocusability="beforeDescendants"
+                android:focusable="true"
+                android:focusableInTouchMode="true">
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/title_rule_title"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvFolder"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Inbox"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvTitle" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:labelFor="@+id/etName"
+                    android:text="@string/title_rule_name"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvFolder" />
+
+                <eu.faircode.email.EditTextPlain
+                    android:id="@+id/etName"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="textCapSentences|textAutoCorrect"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvName" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvOrder"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_order"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/etName" />
+
+                <eu.faircode.email.EditTextPlain
+                    android:id="@+id/etOrder"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:hint="10"
+                    android:inputType="number"
+                    android:maxLength="9"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvOrder" />
+
+                <CheckBox
+                    android:id="@+id/cbEnabled"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_enabled"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/etOrder" />
+
+                <CheckBox
+                    android:id="@+id/cbStop"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_stop"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/cbEnabled" />
+
+                <!-- condition -->
+
+                <View
+                    android:id="@+id/vSeparatorSender"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="24dp"
+                    android:background="?attr/colorSeparator"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/cbStop" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvSender"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text="@string/title_rule_sender"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintBottom_toBottomOf="@+id/cbSender"
+                    app:layout_constraintEnd_toStartOf="@+id/cbSender"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="@+id/cbSender" />
+
+                <CheckBox
+                    android:id="@+id/cbSender"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/title_rule_regex"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/vSeparatorSender" />
+
+                <eu.faircode.email.EditTextPlain
+                    android:id="@+id/etSender"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/title_optional"
+                    android:importantForAutofill="no"
+                    android:inputType="textEmailAddress|textNoSuggestions"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    app:layout_constraintEnd_toStartOf="@+id/ibSender"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/cbSender" />
+
+                <ImageButton
+                    android:id="@+id/ibSender"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/title_legend_pick"
+                    app:layout_constraintBottom_toBottomOf="@id/etSender"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="@id/etSender"
+                    app:srcCompat="@drawable/twotone_person_add_24" />
+
+                <CheckBox
+                    android:id="@+id/cbKnownSender"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/title_rule_sender_known"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/etSender" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvAndSender"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_and"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    android:textColor="?android:attr/textColorPrimary"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/cbKnownSender" />
+
+                <View
+                    android:id="@+id/vSeparatorRecipient"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?attr/colorSeparator"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvAndSender" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvRecipient"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text="@string/title_rule_recipient"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintBottom_toBottomOf="@+id/cbRecipient"
+                    app:layout_constraintEnd_toStartOf="@+id/cbRecipient"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="@+id/cbRecipient" />
+
+                <CheckBox
+                    android:id="@+id/cbRecipient"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/title_rule_regex"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/vSeparatorRecipient" />
+
+                <eu.faircode.email.EditTextPlain
+                    android:id="@+id/etRecipient"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/title_optional"
+                    android:importantForAutofill="no"
+                    android:inputType="textEmailAddress|textNoSuggestions"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    app:layout_constraintEnd_toStartOf="@+id/ibRecipient"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/cbRecipient" />
+
+                <ImageButton
+                    android:id="@+id/ibRecipient"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/title_legend_pick"
+                    app:layout_constraintBottom_toBottomOf="@id/etRecipient"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="@id/etRecipient"
+                    app:srcCompat="@drawable/twotone_person_add_24" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvAndRecipient"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_and"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    android:textColor="?android:attr/textColorPrimary"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/etRecipient" />
+
+                <View
+                    android:id="@+id/vSeparatorSubject"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?attr/colorSeparator"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvAndRecipient" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvSubject"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text="@string/title_rule_subject"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintBottom_toBottomOf="@+id/cbSubject"
+                    app:layout_constraintEnd_toStartOf="@+id/cbSubject"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="@+id/cbSubject" />
+
+                <CheckBox
+                    android:id="@+id/cbSubject"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/title_rule_regex"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/vSeparatorSubject" />
+
+                <eu.faircode.email.EditTextPlain
+                    android:id="@+id/etSubject"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/title_optional"
+                    android:inputType="textCapSentences|textAutoCorrect"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/cbSubject" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvAndSubject"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_and"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    android:textColor="?android:attr/textColorPrimary"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/etSubject" />
+
+                <View
+                    android:id="@+id/vSeparatorAttachments"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?attr/colorSeparator"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvAndSubject" />
+
+                <CheckBox
+                    android:id="@+id/cbAttachments"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/title_rule_attachments"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/vSeparatorAttachments" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvMimeType"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="@string/title_rule_mime_type"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/cbAttachments" />
+
+                <eu.faircode.email.EditTextPlain
+                    android:id="@+id/etMimeType"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/title_optional"
+                    android:inputType="text|textNoSuggestions"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvMimeType" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvAndAttachments"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_and"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    android:textColor="?android:attr/textColorPrimary"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/etMimeType" />
+
+                <View
+                    android:id="@+id/vSeparatorHeader"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?attr/colorSeparator"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvAndAttachments" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvHeader"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text="@string/title_rule_header"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintBottom_toBottomOf="@+id/cbHeader"
+                    app:layout_constraintEnd_toStartOf="@+id/cbHeader"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="@+id/cbHeader" />
+
+                <CheckBox
+                    android:id="@+id/cbHeader"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/title_rule_regex"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/vSeparatorHeader" />
+
+                <eu.faircode.email.EditTextPlain
+                    android:id="@+id/etHeader"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/title_optional"
+                    android:inputType="text|textNoSuggestions"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/cbHeader" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvAndHeader"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_and"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    android:textColor="?android:attr/textColorPrimary"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/etHeader" />
+
+                <View
+                    android:id="@+id/vSeparatorDate"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?attr/colorSeparator"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvAndHeader" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvDate"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text="@string/title_rule_time_abs"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/vSeparatorDate" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvDateAfter"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text="Jan 1, 2021"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    android:textColor="?android:attr/textColorPrimary"
+                    app:layout_constraintBottom_toBottomOf="@+id/btnDateAfter"
+                    app:layout_constraintEnd_toStartOf="@id/btnDateAfter"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="@id/btnDateAfter" />
+
+                <Button
+                    android:id="@+id/btnDateAfter"
+                    style="?android:attr/buttonStyleSmall"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_select"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvDate" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvDateBefore"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text="Jan 1, 2021"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    android:textColor="?android:attr/textColorPrimary"
+                    app:layout_constraintBottom_toBottomOf="@+id/btnDateBefore"
+                    app:layout_constraintEnd_toStartOf="@id/btnDateBefore"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="@id/btnDateBefore" />
+
+                <Button
+                    android:id="@+id/btnDateBefore"
+                    style="?android:attr/buttonStyleSmall"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_select"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/btnDateAfter" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvAndDate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_and"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    android:textColor="?android:attr/textColorPrimary"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/btnDateBefore" />
+
+                <View
+                    android:id="@+id/vSeparatorSchedule"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?attr/colorSeparator"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvAndDate" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvSchedule"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text="@string/title_rule_time_rel"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/vSeparatorSchedule" />
+
+                <Spinner
+                    android:id="@+id/spScheduleDayStart"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    app:layout_constraintBottom_toBottomOf="@+id/tvScheduleHourStart"
+                    app:layout_constraintEnd_toStartOf="@+id/tvScheduleHourStart"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="@+id/tvScheduleHourStart" />
+
+                <Spinner
+                    android:id="@+id/spScheduleDayEnd"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    app:layout_constraintBottom_toBottomOf="@+id/tvScheduleHourEnd"
+                    app:layout_constraintEnd_toStartOf="@+id/tvScheduleHourEnd"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="@+id/tvScheduleHourEnd" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvScheduleHourStart"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:padding="12dp"
+                    android:text="00:00"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    android:textColor="?android:attr/textColorPrimary"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvSchedule" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvScheduleHourEnd"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:padding="12dp"
+                    android:text="00:00"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    android:textColor="?android:attr/textColorPrimary"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvScheduleHourStart" />
+
+                <View
+                    android:id="@+id/vSeparatorAction"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="24dp"
+                    android:background="?attr/colorSeparator"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvScheduleHourEnd" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvAction"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/title_rule_action"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/vSeparatorAction" />
+
+                <Spinner
+                    android:id="@+id/spAction"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvAction" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvActionRemark"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_action_remark"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    android:textStyle="italic"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/spAction" />
+
+                <View
+                    android:id="@+id/vSeparatorParameters"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="24dp"
+                    android:background="?attr/colorSeparator"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvActionRemark" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvHours"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_hours"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/vSeparatorParameters" />
+
+                <NumberPicker
+                    android:id="@+id/npDuration"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/tvHours" />
+
+                <CheckBox
+                    android:id="@+id/cbScheduleEnd"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_schedule_end"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/npDuration" />
+
+                <CheckBox
+                    android:id="@+id/cbSnoozeSeen"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_seen"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/cbScheduleEnd" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvColor"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_color"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/cbSnoozeSeen" />
+
+                <eu.faircode.email.ViewButtonColor
+                    android:id="@+id/btnColor"
+                    style="?android:attr/buttonStyleSmall"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:paddingHorizontal="6dp"
+                    android:tag="disable"
+                    android:text="@string/title_select"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvColor" />
+
+                <Spinner
+                    android:id="@+id/spImportance"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:entries="@array/priorityNames"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/btnColor" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvKeyword"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_keyword"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/spImportance" />
+
+                <eu.faircode.email.EditTextPlain
+                    android:id="@+id/etKeyword"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvKeyword" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvMoveTarget"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_folder"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/etKeyword" />
+
+                <Spinner
+                    android:id="@+id/spTarget"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvMoveTarget" />
+
+                <CheckBox
+                    android:id="@+id/cbMoveSeen"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_seen"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/spTarget" />
+
+                <CheckBox
+                    android:id="@+id/cbMoveThread"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_thread"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/cbMoveSeen" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvAnswerIdentity"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_identity"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/cbMoveThread" />
+
+                <Spinner
+                    android:id="@+id/spIdent"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvAnswerIdentity" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvAnswerTemplate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_template"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/spIdent" />
+
+                <Spinner
+                    android:id="@+id/spAnswer"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvAnswerTemplate" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvTo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:hint="@string/title_optional"
+                    android:text="@string/title_rule_forward_to"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/spAnswer" />
+
+                <eu.faircode.email.EditTextPlain
+                    android:id="@+id/etTo"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="textEmailAddress"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    app:layout_constraintEnd_toStartOf="@+id/ibTo"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvTo" />
+
+                <ImageButton
+                    android:id="@+id/ibTo"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/title_legend_pick"
+                    app:layout_constraintBottom_toBottomOf="@id/etTo"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="@id/etTo"
+                    app:srcCompat="@drawable/twotone_person_add_24" />
+
+                <CheckBox
+                    android:id="@+id/cbCc"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_cc"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/etTo" />
+
+                <CheckBox
+                    android:id="@+id/cbWithAttachments"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_with_attachments"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/cbCc" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvAnswerRemark"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_answer_remark"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    android:textStyle="italic"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/cbWithAttachments" />
+
+                <Button
+                    android:id="@+id/btnTtsSetup"
+                    style="?android:attr/buttonStyleSmall"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:drawableEnd="@drawable/twotone_check_24"
+                    android:drawablePadding="6dp"
+                    android:text="@string/title_rule_tts_setup"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tvAnswerRemark" />
+
+                <Button
+                    android:id="@+id/btnTtsData"
+                    style="?android:attr/buttonStyleSmall"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:drawableEnd="@drawable/twotone_audiotrack_24"
+                    android:drawablePadding="6dp"
+                    android:text="@string/title_rule_tts_data"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/btnTtsSetup" />
+
+                <eu.faircode.email.FixedTextView
+                    android:id="@+id/tvAutomation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/title_rule_automation_hint"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/btnTtsData" />
+
+                <androidx.constraintlayout.widget.Group
+                    android:id="@+id/grpReady"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    app:constraint_referenced_ids="
+                    tvTitle,tvFolder,tvName,etName,tvOrder,etOrder,cbEnabled,cbStop,
+                    vSeparatorSender,tvSender,cbSender,etSender,ibSender,cbKnownSender,tvAndSender,
+                    vSeparatorRecipient,tvRecipient,cbRecipient,etRecipient,ibRecipient,tvAndRecipient,
+                    vSeparatorSubject,tvSubject,cbSubject,etSubject,tvAndSubject,
+                    vSeparatorHeader,tvHeader,cbHeader,etHeader,tvAndHeader,
+                    vSeparatorSchedule,tvSchedule,spScheduleDayStart,spScheduleDayEnd,tvScheduleHourStart,tvScheduleHourEnd,
+                    vSeparatorAction,tvAction,spAction,tvActionRemark,
+                    vSeparatorParameters" />
+
+                <androidx.constraintlayout.widget.Group
+                    android:id="@+id/grpSnooze"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    app:constraint_referenced_ids="tvHours,npDuration,cbScheduleEnd,cbSnoozeSeen" />
+
+                <androidx.constraintlayout.widget.Group
+                    android:id="@+id/grpFlag"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    app:constraint_referenced_ids="tvColor,btnColor" />
+
+                <androidx.constraintlayout.widget.Group
+                    android:id="@+id/grpImportance"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    app:constraint_referenced_ids="spImportance" />
+
+                <androidx.constraintlayout.widget.Group
+                    android:id="@+id/grpKeyword"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    app:constraint_referenced_ids="tvKeyword,etKeyword" />
+
+                <androidx.constraintlayout.widget.Group
+                    android:id="@+id/grpMove"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    app:constraint_referenced_ids="tvMoveTarget,spTarget" />
+
+                <androidx.constraintlayout.widget.Group
+                    android:id="@+id/grpMoveProp"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    app:constraint_referenced_ids="cbMoveSeen,cbMoveThread" />
+
+                <androidx.constraintlayout.widget.Group
+                    android:id="@+id/grpAnswer"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    app:constraint_referenced_ids="tvAnswerIdentity,spIdent,tvAnswerTemplate,spAnswer,tvTo,etTo,ibTo,cbCc,cbWithAttachments,tvAnswerRemark" />
+
+                <androidx.constraintlayout.widget.Group
+                    android:id="@+id/grpTts"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    app:constraint_referenced_ids="btnTtsSetup,btnTtsData" />
+
+                <androidx.constraintlayout.widget.Group
+                    android:id="@+id/grpAutomation"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    app:constraint_referenced_ids="tvAutomation" />
+            </androidx.constraintlayout.widget.ConstraintLayout>
+        </eu.faircode.email.ScrollViewEx>
+
+        <com.google.android.material.bottomnavigation.BottomNavigationView
+            android:id="@+id/bottom_navigation"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:descendantFocusability="beforeDescendants"
-            android:focusable="true"
-            android:focusableInTouchMode="true">
-
-            <TextView
-                android:id="@+id/tvTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/title_rule_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
-
-            <TextView
-                android:id="@+id/tvFolder"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="Inbox"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvTitle" />
-
-            <TextView
-                android:id="@+id/tvName"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:labelFor="@+id/etName"
-                android:text="@string/title_rule_name"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvFolder" />
-
-            <EditText
-                android:id="@+id/etName"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:inputType="textCapSentences|textAutoCorrect"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvName" />
-
-            <TextView
-                android:id="@+id/tvOrder"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_order"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/etName" />
-
-            <EditText
-                android:id="@+id/etOrder"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:hint="1"
-                android:inputType="number"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvOrder" />
-
-            <CheckBox
-                android:id="@+id/cbEnabled"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_enabled"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/etOrder" />
-
-            <CheckBox
-                android:id="@+id/cbStop"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_stop"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/cbEnabled" />
-
-            <!-- condition -->
-
-            <View
-                android:id="@+id/vSeparatorSender"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:layout_marginTop="24dp"
-                android:background="?attr/colorSeparator"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/cbStop" />
-
-            <TextView
-                android:id="@+id/tvSender"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:singleLine="true"
-                android:text="@string/title_rule_sender"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintBottom_toBottomOf="@+id/cbSender"
-                app:layout_constraintEnd_toStartOf="@+id/cbSender"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="@+id/cbSender" />
-
-            <CheckBox
-                android:id="@+id/cbSender"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/title_rule_regex"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/vSeparatorSender" />
-
-            <EditText
-                android:id="@+id/etSender"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:hint="@string/title_optional"
-                android:inputType="textEmailAddress"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                app:layout_constraintEnd_toStartOf="@+id/ivSender"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/cbSender" />
-
-            <ImageView
-                android:id="@+id/ivSender"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:layout_marginStart="6dp"
-                android:layout_marginEnd="6dp"
-                android:contentDescription="@string/title_legend_pick"
-                app:layout_constraintBottom_toBottomOf="@id/etSender"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toTopOf="@id/etSender"
-                app:srcCompat="@drawable/baseline_person_24" />
-
-            <TextView
-                android:id="@+id/tvAndSender"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_and"
-                android:textAppearance="@style/Base.TextAppearance.AppCompat.Medium"
-                android:textColor="?android:attr/textColorPrimary"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/etSender" />
-
-            <View
-                android:id="@+id/vSeparatorRecipient"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="?attr/colorSeparator"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvAndSender" />
-
-            <TextView
-                android:id="@+id/tvRecipient"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:singleLine="true"
-                android:text="@string/title_rule_recipient"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintBottom_toBottomOf="@+id/cbRecipient"
-                app:layout_constraintEnd_toStartOf="@+id/cbRecipient"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="@+id/cbRecipient" />
-
-            <CheckBox
-                android:id="@+id/cbRecipient"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/title_rule_regex"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/vSeparatorRecipient" />
-
-            <EditText
-                android:id="@+id/etRecipient"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:hint="@string/title_optional"
-                android:inputType="textEmailAddress"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                app:layout_constraintEnd_toStartOf="@+id/ivRecipient"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/cbRecipient" />
-
-            <ImageView
-                android:id="@+id/ivRecipient"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:layout_marginStart="6dp"
-                android:layout_marginEnd="6dp"
-                android:contentDescription="@string/title_legend_pick"
-                app:layout_constraintBottom_toBottomOf="@id/etRecipient"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toTopOf="@id/etRecipient"
-                app:srcCompat="@drawable/baseline_person_24" />
-
-            <TextView
-                android:id="@+id/tvAndRecipient"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_and"
-                android:textAppearance="@style/Base.TextAppearance.AppCompat.Medium"
-                android:textColor="?android:attr/textColorPrimary"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/etRecipient" />
-
-            <View
-                android:id="@+id/vSeparatorSubject"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="?attr/colorSeparator"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvAndRecipient" />
-
-            <TextView
-                android:id="@+id/tvSubject"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:singleLine="true"
-                android:text="@string/title_rule_subject"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintBottom_toBottomOf="@+id/cbSubject"
-                app:layout_constraintEnd_toStartOf="@+id/cbSubject"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="@+id/cbSubject" />
-
-            <CheckBox
-                android:id="@+id/cbSubject"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/title_rule_regex"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/vSeparatorSubject" />
-
-            <EditText
-                android:id="@+id/etSubject"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:hint="@string/title_optional"
-                android:inputType="textCapSentences|textAutoCorrect"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/cbSubject" />
-
-            <TextView
-                android:id="@+id/tvAndSubject"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_and"
-                android:textAppearance="@style/Base.TextAppearance.AppCompat.Medium"
-                android:textColor="?android:attr/textColorPrimary"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/etSubject" />
-
-            <View
-                android:id="@+id/vSeparatorHeader"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="?attr/colorSeparator"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvAndSubject" />
-
-            <TextView
-                android:id="@+id/tvHeader"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:singleLine="true"
-                android:text="@string/title_rule_header"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintBottom_toBottomOf="@+id/cbHeader"
-                app:layout_constraintEnd_toStartOf="@+id/cbHeader"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="@+id/cbHeader" />
-
-            <CheckBox
-                android:id="@+id/cbHeader"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/title_rule_regex"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/vSeparatorHeader" />
-
-            <EditText
-                android:id="@+id/etHeader"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:hint="@string/title_optional"
-                android:inputType="text"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/cbHeader" />
-
-            <TextView
-                android:id="@+id/tvAndHeader"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_and"
-                android:textAppearance="@style/Base.TextAppearance.AppCompat.Medium"
-                android:textColor="?android:attr/textColorPrimary"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/etHeader" />
-
-            <View
-                android:id="@+id/vSeparatorSchedule"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="?attr/colorSeparator"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvAndHeader" />
-
-            <TextView
-                android:id="@+id/tvSchedule"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:singleLine="true"
-                android:text="@string/title_rule_time"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/vSeparatorSchedule" />
-
-            <Spinner
-                android:id="@+id/spScheduleDayStart"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                app:layout_constraintBottom_toBottomOf="@+id/tvScheduleHourStart"
-                app:layout_constraintEnd_toStartOf="@+id/tvScheduleHourStart"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="@+id/tvScheduleHourStart" />
-
-            <Spinner
-                android:id="@+id/spScheduleDayEnd"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                app:layout_constraintBottom_toBottomOf="@+id/tvScheduleHourEnd"
-                app:layout_constraintEnd_toStartOf="@+id/tvScheduleHourEnd"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="@+id/tvScheduleHourEnd" />
-
-            <TextView
-                android:id="@+id/tvScheduleHourStart"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:padding="12dp"
-                android:text="00:00"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                android:textColor="?android:attr/textColorPrimary"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvSchedule" />
-
-            <TextView
-                android:id="@+id/tvScheduleHourEnd"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:padding="12dp"
-                android:text="00:00"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                android:textColor="?android:attr/textColorPrimary"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvScheduleHourStart" />
-
-            <View
-                android:id="@+id/vSeparatorAction"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:layout_marginTop="24dp"
-                android:background="?attr/colorSeparator"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvScheduleHourEnd" />
-
-            <TextView
-                android:id="@+id/tvAction"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/title_rule_action"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/vSeparatorAction" />
-
-            <Spinner
-                android:id="@+id/spAction"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvAction" />
-
-            <TextView
-                android:id="@+id/tvActionRemark"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_action_remark"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                android:textStyle="italic"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/spAction" />
-
-            <View
-                android:id="@+id/vSeparatorParameters"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:layout_marginTop="24dp"
-                android:background="?attr/colorSeparator"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvActionRemark" />
-
-            <TextView
-                android:id="@+id/tvHours"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_hours"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/vSeparatorParameters" />
-
-            <NumberPicker
-                android:id="@+id/npDuration"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/tvHours" />
-
-            <CheckBox
-                android:id="@+id/cbScheduleEnd"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_schedule_end"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/npDuration" />
-
-            <TextView
-                android:id="@+id/tvColor"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_color"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/cbScheduleEnd" />
-
-            <Button
-                android:id="@+id/btnColor"
-                style="@style/buttonStyleSmall"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minWidth="0dp"
-                android:minHeight="0dp"
-                android:tag="disable"
-                android:text="@string/title_select"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvColor" />
-
-            <View
-                android:id="@+id/vwColor"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:layout_marginStart="12dp"
-                android:background="?attr/colorAccent"
-                app:layout_constraintBottom_toBottomOf="@id/btnColor"
-                app:layout_constraintStart_toEndOf="@id/btnColor"
-                app:layout_constraintTop_toTopOf="@id/btnColor" />
-
-            <ImageButton
-                android:id="@+id/ibColorDefault"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:background="@null"
-                android:contentDescription="@string/title_legend_default_color"
-                app:layout_constraintBottom_toBottomOf="@id/btnColor"
-                app:layout_constraintStart_toEndOf="@id/vwColor"
-                app:layout_constraintTop_toTopOf="@id/btnColor"
-                app:srcCompat="@drawable/baseline_delete_24" />
-
-            <TextView
-                android:id="@+id/tvMoveTarget"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_folder"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/btnColor" />
-
-            <Spinner
-                android:id="@+id/spTarget"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvMoveTarget" />
-
-            <CheckBox
-                android:id="@+id/cbMoveSeen"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_seen"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/spTarget" />
-
-            <CheckBox
-                android:id="@+id/cbMoveThread"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_thread"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/cbMoveSeen" />
-
-            <TextView
-                android:id="@+id/tvAnswerIdentity"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_identity"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/cbMoveThread" />
-
-            <Spinner
-                android:id="@+id/spIdent"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvAnswerIdentity" />
-
-            <TextView
-                android:id="@+id/tvAnswerTemplate"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_template"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/spIdent" />
-
-            <Spinner
-                android:id="@+id/spAnswer"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/tvAnswerTemplate" />
-
-            <CheckBox
-                android:id="@+id/cbCc"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_cc"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/spAnswer" />
-
-            <TextView
-                android:id="@+id/tvAutomation"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/title_rule_automation_hint"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                android:textIsSelectable="true"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/cbCc" />
-
-            <androidx.constraintlayout.widget.Group
-                android:id="@+id/grpReady"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                app:constraint_referenced_ids="
-                tvFolder,tvName,etName,tvOrder,etOrder,cbEnabled,cbStop,
-                vSeparatorSender,tvSender,cbSender,etSender,ivSender,tvAndSender,
-                vSeparatorRecipient,tvRecipient,cbRecipient,etRecipient,ivRecipient,tvAndRecipient,
-                vSeparatorSubject,tvSubject,cbSubject,etSubject,tvAndSubject,
-                vSeparatorHeader,tvHeader,cbHeader,etHeader,tvAndHeader,
-                vSeparatorSchedule,spScheduleDayStart,spScheduleDayEnd,tvScheduleHourStart,tvScheduleHourEnd,
-                vSeparatorAction,tvAction,spAction,tvActionRemark,
-                vSeparatorParameters" />
-
-            <androidx.constraintlayout.widget.Group
-                android:id="@+id/grpSnooze"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                app:constraint_referenced_ids="
-                tvHours,npDuration,cbScheduleEnd" />
-
-            <androidx.constraintlayout.widget.Group
-                android:id="@+id/grpFlag"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                app:constraint_referenced_ids="
-                tvColor,btnColor,vwColor,ibColorDefault" />
-
-            <androidx.constraintlayout.widget.Group
-                android:id="@+id/grpMove"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                app:constraint_referenced_ids="
-                tvMoveTarget,spTarget" />
-
-            <androidx.constraintlayout.widget.Group
-                android:id="@+id/grpMoveProp"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                app:constraint_referenced_ids="
-                cbMoveSeen,cbMoveThread" />
-
-            <androidx.constraintlayout.widget.Group
-                android:id="@+id/grpAnswer"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                app:constraint_referenced_ids="
-                tvAnswerIdentity,spIdent,tvAnswerTemplate,spAnswer,cbCc" />
-
-            <androidx.constraintlayout.widget.Group
-                android:id="@+id/grpAutomation"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                app:constraint_referenced_ids="tvAutomation" />
-        </androidx.constraintlayout.widget.ConstraintLayout>
-    </ScrollView>
-
-    <com.google.android.material.bottomnavigation.BottomNavigationView
-        android:id="@+id/bottom_navigation"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="?attr/colorPrimary"
-        app:itemIconTint="@color/bottomnav_foreground"
-        app:itemTextColor="@color/bottomnav_foreground"
-        app:labelVisibilityMode="labeled"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:menu="@menu/action_rule" />
-
-    <eu.faircode.email.ContentLoadingProgressBar
-        android:id="@+id/pbWait"
-        style="@style/Base.Widget.AppCompat.ProgressBar"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:indeterminate="true"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-</androidx.constraintlayout.widget.ConstraintLayout>
+            android:background="?attr/colorPrimary"
+            app:itemIconTint="@color/action_foreground"
+            app:itemTextColor="@color/action_foreground"
+            app:labelVisibilityMode="labeled"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:menu="@menu/action_rule" />
+
+        <eu.faircode.email.ContentLoadingProgressBar
+            android:id="@+id/pbWait"
+            style="@style/Base.Widget.AppCompat.ProgressBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:indeterminate="true"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -16,87 +16,178 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
+import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Paint;
 import android.net.Uri;
 import android.os.Bundle;
-import android.text.method.LinkMovementMethod;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
+import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.preference.PreferenceManager;
 
 import com.google.android.material.snackbar.Snackbar;
 
+import java.util.Date;
+
 public class FragmentPro extends FragmentBase implements SharedPreferences.OnSharedPreferenceChangeListener {
     private TextView tvPending;
     private TextView tvActivated;
+    private Button btnBackup;
+    private TextView tvInfo;
+    private CheckBox cbHide;
     private TextView tvList;
     private Button btnPurchase;
+    private ImageView ivExternal;
+    private TextView tvNoPlay;
     private TextView tvPrice;
     private TextView tvPriceHint;
-    private Button btnCheck;
+    private TextView tvFamilyHint;
+    private TextView tvRestoreHint;
+    private Button btnConsume;
+    private ImageView ivConnected;
+
+    private static final int HIDE_BANNER = 4; // weeks
 
     @Override
     @Nullable
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         setSubtitle(R.string.menu_pro);
+        setHasOptionsMenu(true);
 
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
-        boolean debug = prefs.getBoolean("debug", false);
+        final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
 
         View view = inflater.inflate(R.layout.fragment_pro, container, false);
 
         tvPending = view.findViewById(R.id.tvPending);
         tvActivated = view.findViewById(R.id.tvActivated);
+        btnBackup = view.findViewById(R.id.btnBackup);
+        tvInfo = view.findViewById(R.id.tvInfo);
+        cbHide = view.findViewById(R.id.cbHide);
         tvList = view.findViewById(R.id.tvList);
         btnPurchase = view.findViewById(R.id.btnPurchase);
+        ivExternal = view.findViewById(R.id.ivExternal);
+        tvNoPlay = view.findViewById(R.id.tvNoPlay);
         tvPrice = view.findViewById(R.id.tvPrice);
         tvPriceHint = view.findViewById(R.id.tvPriceHint);
-        btnCheck = view.findViewById(R.id.btnCheck);
+        tvFamilyHint = view.findViewById(R.id.tvFamilyHint);
+        tvRestoreHint = view.findViewById(R.id.tvRestoreHint);
+        btnConsume = view.findViewById(R.id.btnConsume);
+        ivConnected = view.findViewById(R.id.ivConnected);
+
+        btnBackup.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                v.getContext().startActivity(new Intent(v.getContext(), ActivitySetup.class)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                        .putExtra("navigate", true));
+            }
+        });
+
+        tvInfo.setText(getString(R.string.title_pro_info)
+                .replaceAll("^\\s+", "").replaceAll("\\s+", " "));
+
+        cbHide.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                if (isChecked) {
+                    long banner_hidden = new Date().getTime() + HIDE_BANNER * 7 * 24 * 3600 * 1000L;
+                    prefs.edit().putLong("banner_hidden", banner_hidden).apply();
+                } else
+                    prefs.edit().remove("banner_hidden").apply();
+            }
+        });
 
         tvList.setPaintFlags(tvList.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
         tvList.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                Helper.view(getContext(), Uri.parse(BuildConfig.PRO_FEATURES_URI), false);
+                Helper.view(view.getContext(), Uri.parse(BuildConfig.PRO_FEATURES_URI), false);
             }
         });
 
         btnPurchase.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onClick(View view) {
-                LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(getContext());
+            public void onClick(View v) {
+                LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(v.getContext());
                 lbm.sendBroadcast(new Intent(ActivityBilling.ACTION_PURCHASE));
             }
         });
 
-        tvPriceHint.setMovementMethod(LinkMovementMethod.getInstance());
-
-        btnCheck.setOnClickListener(new View.OnClickListener() {
+        tvPriceHint.setPaintFlags(tvPriceHint.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvPriceHint.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onClick(View view) {
-                LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(getContext());
-                lbm.sendBroadcast(new Intent(ActivityBilling.ACTION_PURCHASE_CHECK));
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 19);
             }
         });
 
+        tvFamilyHint.setPaintFlags(tvFamilyHint.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvFamilyHint.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 66);
+            }
+        });
+
+        tvRestoreHint.setPaintFlags(tvRestoreHint.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        tvRestoreHint.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Helper.viewFAQ(v.getContext(), 117);
+            }
+        });
+
+        btnConsume.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(v.getContext());
+                lbm.sendBroadcast(new Intent(ActivityBilling.ACTION_PURCHASE_CONSUME));
+            }
+        });
+
+        boolean play = (Helper.isPlayStoreInstall() || ActivityBilling.isTesting(getContext()));
+
+        long now = new Date().getTime();
+        long banner_hidden = prefs.getLong("banner_hidden", 0);
+        cbHide.setChecked(banner_hidden > 0 && now < banner_hidden);
+        cbHide.setText(getString(R.string.title_pro_hide, HIDE_BANNER));
+
         tvPending.setVisibility(View.GONE);
         tvActivated.setVisibility(View.GONE);
-        btnPurchase.setEnabled(false);
-        tvPrice.setText(null);
-        btnCheck.setEnabled(false);
-        btnCheck.setVisibility(Helper.isPlayStoreInstall(getContext()) && debug ? View.VISIBLE : View.GONE);
+        btnBackup.setVisibility(View.GONE);
+        cbHide.setVisibility(View.GONE);
+        btnPurchase.setEnabled(!play);
+        ivExternal.setVisibility(play ? View.GONE : View.VISIBLE);
+        tvPrice.setVisibility(View.GONE);
+        tvNoPlay.setVisibility(
+                BuildConfig.PLAY_STORE_RELEASE && !Helper.hasPlayStore(getContext())
+                        ? View.VISIBLE : View.GONE);
+        tvFamilyHint.setVisibility(play ? View.VISIBLE : View.GONE);
+        tvRestoreHint.setVisibility(play ? View.VISIBLE : View.GONE);
+        btnConsume.setEnabled(false);
+        btnConsume.setVisibility(ActivityBilling.isTesting(getContext()) ? View.VISIBLE : View.GONE);
+        ivConnected.setVisibility(View.GONE);
 
         return view;
     }
@@ -108,18 +199,21 @@ public class FragmentPro extends FragmentBase implements SharedPreferences.OnSha
         addBillingListener(new ActivityBilling.IBillingListener() {
             @Override
             public void onConnected() {
-                btnCheck.setEnabled(true);
+                ivConnected.setImageResource(R.drawable.twotone_cloud_done_24);
+                ivConnected.setVisibility(View.VISIBLE);
             }
 
             @Override
             public void onDisconnected() {
-                btnCheck.setEnabled(false);
+                ivConnected.setImageResource(R.drawable.twotone_cloud_off_24);
+                ivConnected.setVisibility(View.VISIBLE);
             }
 
             @Override
             public void onSkuDetails(String sku, String price) {
                 if (ActivityBilling.getSkuPro().equals(sku)) {
-                    tvPrice.setText(price);
+                    tvPrice.setText(getString(R.string.title_pro_one_time, price));
+                    tvPrice.setVisibility(View.VISIBLE);
                     btnPurchase.setEnabled(true);
                 }
             }
@@ -133,24 +227,31 @@ public class FragmentPro extends FragmentBase implements SharedPreferences.OnSha
             }
 
             @Override
-            public void onPurchased(String sku) {
+            public void onPurchased(String sku, boolean purchased) {
                 if (ActivityBilling.getSkuPro().equals(sku)) {
-                    btnPurchase.setEnabled(false);
+                    btnPurchase.setEnabled(!purchased);
                     tvPending.setVisibility(View.GONE);
+                    btnConsume.setEnabled(purchased);
                 }
             }
 
             @Override
-            public void onError(String message) {
-                final Intent support = new Intent(Intent.ACTION_VIEW, Uri.parse(Helper.SUPPORT_URI));
-                Snackbar snackbar = Snackbar.make(getView(), message, Snackbar.LENGTH_LONG);
-                if (support.resolveActivity(getContext().getPackageManager()) != null)
-                    snackbar.setAction(R.string.title_setup_help, new View.OnClickListener() {
-                        @Override
-                        public void onClick(View view) {
-                            startActivity(support);
-                        }
-                    });
+            public void onError(final String message) {
+                final View view = getView();
+                if (view == null)
+                    return;
+
+                Snackbar snackbar = Snackbar.make(view, message, Snackbar.LENGTH_INDEFINITE)
+                        .setGestureInsetBottomIgnored(true);
+                snackbar.setAction(R.string.title_setup_help, new View.OnClickListener() {
+                    @Override
+                    public void onClick(View view) {
+                        LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(view.getContext());
+                        lbm.sendBroadcast(
+                                new Intent(ActivityBilling.ACTION_PURCHASE_ERROR)
+                                        .putExtra("message", message));
+                    }
+                });
                 snackbar.show();
             }
         });
@@ -172,13 +273,65 @@ public class FragmentPro extends FragmentBase implements SharedPreferences.OnSha
     }
 
     @Override
+    public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
+        inflater.inflate(R.menu.menu_pro, menu);
+        super.onCreateOptionsMenu(menu, inflater);
+    }
+
+    @Override
+    public void onPrepareOptionsMenu(@NonNull Menu menu) {
+        menu.findItem(R.id.menu_response).setVisible(!Helper.isPlayStoreInstall());
+        super.onPrepareOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == R.id.menu_response) {
+            onMenuResponse();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    private void onMenuResponse() {
+        final Context context = getContext();
+        final View dview = LayoutInflater.from(context).inflate(R.layout.dialog_response, null);
+        final EditText etResponse = dview.findViewById(R.id.etResponse);
+
+        new AlertDialog.Builder(context)
+                .setView(dview)
+                .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        try {
+                            String response = etResponse.getText().toString().trim();
+                            int q = response.indexOf("?response=");
+                            if (q > 0)
+                                response = response.substring(q + 10);
+                            if (ActivityBilling.activatePro(context, response))
+                                ToastEx.makeText(context, R.string.title_pro_valid, Toast.LENGTH_LONG).show();
+                            else
+                                ToastEx.makeText(context, R.string.title_pro_invalid, Toast.LENGTH_LONG).show();
+                        } catch (Throwable ex) {
+                            Log.e(ex);
+                            ToastEx.makeText(context, Log.formatThrowable(ex), Toast.LENGTH_LONG).show();
+                        }
+                    }
+                })
+                .show();
+    }
+
+    @Override
     public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
         if ("pro".equals(key)) {
-            boolean pro = prefs.getBoolean(key, false);
+            boolean pro = ActivityBilling.isPro(getContext());
             tvActivated.setVisibility(pro ? View.VISIBLE : View.GONE);
-
-            if (!Helper.isPlayStoreInstall(getContext()))
-                btnPurchase.setEnabled(!pro || BuildConfig.DEBUG);
+            btnBackup.setVisibility(pro ? View.VISIBLE : View.GONE);
+            cbHide.setVisibility(pro ? View.GONE : View.VISIBLE);
+        } else if ("banner_hidden".equals(key)) {
+            long now = new Date().getTime();
+            long banner_hidden = prefs.getLong("banner_hidden", 0);
+            cbHide.setChecked(banner_hidden > 0 && now < banner_hidden);
         }
     }
 }

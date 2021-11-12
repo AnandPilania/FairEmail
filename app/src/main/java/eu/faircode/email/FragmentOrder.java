@@ -16,7 +16,7 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
@@ -116,7 +116,7 @@ public class FragmentOrder extends FragmentBase {
 
                 @Override
                 protected void onException(Bundle args, Throwable ex) {
-                    Helper.unexpectedError(getFragmentManager(), ex);
+                    Log.unexpectedError(getParentFragmentManager(), ex);
                 }
             }.execute(this, new Bundle(), "order:accounts");
         else if (TupleFolderSort.class.getName().equals(clazz))
@@ -142,7 +142,7 @@ public class FragmentOrder extends FragmentBase {
 
                 @Override
                 protected void onException(Bundle args, Throwable ex) {
-                    Helper.unexpectedError(getFragmentManager(), ex);
+                    Log.unexpectedError(getParentFragmentManager(), ex);
                 }
             }.execute(this, new Bundle(), "order:folders");
         else
@@ -165,13 +165,11 @@ public class FragmentOrder extends FragmentBase {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case R.id.menu_reset_order:
-                onMenuResetOrder();
-                return true;
-            default:
-                return super.onOptionsItemSelected(item);
+        if (item.getItemId() == R.id.menu_reset_order) {
+            onMenuResetOrder();
+            return true;
         }
+        return super.onOptionsItemSelected(item);
     }
 
     private void onMenuResetOrder() {
@@ -218,10 +216,9 @@ public class FragmentOrder extends FragmentBase {
 
             @Override
             protected void onException(Bundle args, Throwable ex) {
-                Helper.unexpectedError(getFragmentManager(), ex);
+                Log.unexpectedError(getParentFragmentManager(), ex);
             }
-        }.execute(getContext(), getViewLifecycleOwner(), args, "order:set");
-
+        }.execute(this, args, "order:set");
     }
 
     private ItemTouchHelper.Callback touchHelper = new ItemTouchHelper.Callback() {

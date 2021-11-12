@@ -16,16 +16,19 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
-import android.net.MailTo;
+import android.content.Context;
 import android.net.ParseException;
 import android.net.Uri;
+import android.util.Pair;
 
-import java.io.BufferedReader;
+import androidx.annotation.NonNull;
+import androidx.core.net.MailTo;
+
+import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.URL;
 import java.net.UnknownHostException;
@@ -35,44 +38,68 @@ import java.util.Map;
 import javax.net.ssl.HttpsURLConnection;
 
 public class IPInfo {
-    private static Map<String, String> hostOrganization = new HashMap<>();
+    private static Map<InetAddress, Organization> addressOrganization = new HashMap<>();
 
-    static String[] getOrganization(Uri uri) throws IOException, ParseException {
-        if ("mailto".equals(uri.getScheme())) {
+    private final static int FETCH_TIMEOUT = 15 * 1000; // milliseconds
+
+    static Pair<InetAddress, Organization> getOrganization(@NonNull Uri uri, Context context) throws IOException, ParseException {
+        if ("mailto".equalsIgnoreCase(uri.getScheme())) {
             MailTo email = MailTo.parse(uri.toString());
-            String to = email.getTo();
-            if (to == null || !to.contains("@"))
+            String domain = UriHelper.getEmailDomain(email.getTo());
+            if (domain == null)
                 throw new UnknownHostException();
-            String host = to.substring(to.indexOf('@') + 1);
-            return getOrganization(host);
+            //InetAddress address = DnsHelper.lookupMx(context, domain);
+            //if (address == null)
+            //    throw new UnknownHostException();
+            InetAddress address = InetAddress.getByName(domain);
+            return new Pair<>(address, getOrganization(address, context));
         } else {
             String host = uri.getHost();
             if (host == null)
                 throw new UnknownHostException();
-            return getOrganization(host);
+            InetAddress address = InetAddress.getByName(host);
+            return new Pair<>(address, getOrganization(address, context));
         }
     }
 
-    private static String[] getOrganization(String host) throws IOException {
-        synchronized (hostOrganization) {
-            if (hostOrganization.containsKey(host))
-                return new String[]{host, hostOrganization.get(host)};
+    private static Organization getOrganization(InetAddress address, Context context) throws IOException {
+        synchronized (addressOrganization) {
+            if (addressOrganization.containsKey(address))
+                return addressOrganization.get(address);
         }
-        InetAddress address = InetAddress.getByName(host);
+
+        // https://ipinfo.io/developers
         URL url = new URL("https://ipinfo.io/" + address.getHostAddress() + "/org");
         Log.i("GET " + url);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
         connection.setRequestMethod("GET");
-        connection.setReadTimeout(15 * 1000);
+        connection.setReadTimeout(FETCH_TIMEOUT);
+        connection.setConnectTimeout(FETCH_TIMEOUT);
+        connection.setRequestProperty("User-Agent", WebViewEx.getUserAgent(context));
         connection.connect();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-            String organization = reader.readLine();
-            if ("undefined".equals(organization))
-                organization = null;
-            synchronized (hostOrganization) {
-                hostOrganization.put(host, organization);
-            }
-            return new String[]{host, organization};
+
+        Organization organization = new Organization();
+        try {
+            int status = connection.getResponseCode();
+            if (status != HttpsURLConnection.HTTP_OK)
+                throw new FileNotFoundException("Error " + status + ": " + connection.getResponseMessage());
+
+            String response = Helper.readStream(connection.getInputStream());
+            organization.name = response.trim();
+            if ("".equals(organization.name) || "undefined".equals(organization.name))
+                organization.name = null;
+        } finally {
+            connection.disconnect();
         }
+
+        synchronized (addressOrganization) {
+            addressOrganization.put(address, organization);
+        }
+
+        return organization;
+    }
+
+    static class Organization {
+        String name;
     }
 }

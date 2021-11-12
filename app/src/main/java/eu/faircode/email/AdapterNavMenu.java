@@ -16,10 +16,13 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
 
 import android.content.Context;
+import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -28,7 +31,9 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.core.graphics.ColorUtils;
 import androidx.lifecycle.LifecycleOwner;
+import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ListUpdateCallback;
 import androidx.recyclerview.widget.RecyclerView;
@@ -36,13 +41,18 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 public class AdapterNavMenu extends RecyclerView.Adapter<AdapterNavMenu.ViewHolder> {
     private Context context;
     private LifecycleOwner owner;
     private LayoutInflater inflater;
 
+    private int colorUnread;
+    private int colorControlNormal;
+    private int textColorSecondary;
+    private int colorWarning;
+
+    private boolean expanded = true;
     private List<NavMenuItem> items = new ArrayList<>();
 
     private NumberFormat NF = NumberFormat.getNumberInstance();
@@ -50,9 +60,10 @@ public class AdapterNavMenu extends RecyclerView.Adapter<AdapterNavMenu.ViewHold
     public class ViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener, View.OnLongClickListener {
         private View view;
         private ImageView ivItem;
+        private ImageView ivBadge;
         private TextView tvItem;
         private TextView tvItemExtra;
-        private ImageView ivExternal;
+        private ImageView ivExtra;
         private ImageView ivWarning;
 
         ViewHolder(View itemView) {
@@ -60,9 +71,10 @@ public class AdapterNavMenu extends RecyclerView.Adapter<AdapterNavMenu.ViewHold
 
             view = itemView.findViewById(R.id.clItem);
             ivItem = itemView.findViewById(R.id.ivItem);
+            ivBadge = itemView.findViewById(R.id.ivBadge);
             tvItem = itemView.findViewById(R.id.tvItem);
             tvItemExtra = itemView.findViewById(R.id.tvItemExtra);
-            ivExternal = itemView.findViewById(R.id.ivExternal);
+            ivExtra = itemView.findViewById(R.id.ivExtra);
             ivWarning = itemView.findViewById(R.id.ivWarning);
         }
 
@@ -79,20 +91,29 @@ public class AdapterNavMenu extends RecyclerView.Adapter<AdapterNavMenu.ViewHold
         private void bindTo(NavMenuItem menu) {
             ivItem.setImageResource(menu.getIcon());
 
-            if (menu.getCount() == null)
+            Integer color = menu.getColor();
+            ivItem.setImageTintList(ColorStateList.valueOf(color == null ? colorControlNormal : color));
+
+            Integer count = menu.getCount();
+            ivBadge.setVisibility(count == null || count == 0 || expanded ? View.GONE : View.VISIBLE);
+
+            if (count == null)
                 tvItem.setText(menu.getTitle());
             else
                 tvItem.setText(context.getString(R.string.title_name_count,
-                        context.getString(menu.getTitle()), NF.format(menu.getCount())));
+                        context.getString(menu.getTitle()), NF.format(count)));
 
-            tvItem.setTextColor(Helper.resolveColor(context,
-                    menu.getCount() == null ? android.R.attr.textColorSecondary : android.R.attr.textColorPrimary));
-            tvItem.setTypeface(menu.getCount() == null ? Typeface.DEFAULT : Typeface.DEFAULT_BOLD);
+            tvItem.setTextColor(count == null ? (color == null ? textColorSecondary : color) : colorUnread);
+            tvItem.setTypeface(count == null ? Typeface.DEFAULT : Typeface.DEFAULT_BOLD);
+            tvItem.setVisibility(expanded ? View.VISIBLE : View.GONE);
 
-            tvItemExtra.setVisibility(View.GONE);
+            tvItemExtra.setText(menu.getSubtitle());
+            tvItemExtra.setVisibility(menu.getSubtitle() != null && expanded ? View.VISIBLE : View.GONE);
 
-            ivExternal.setVisibility(menu.isExternal() ? View.VISIBLE : View.GONE);
-            ivWarning.setVisibility(menu.hasWarning() ? View.VISIBLE : View.GONE);
+            ivExtra.setImageResource(menu.getExtraIcon());
+            ivExtra.setVisibility(menu.getExtraIcon() != 0 && expanded ? View.VISIBLE : View.GONE);
+            ivWarning.setVisibility(menu.hasWarning() && expanded ? View.VISIBLE : View.GONE);
+            view.setBackgroundColor(menu.hasWarning() && !expanded ? colorWarning : Color.TRANSPARENT);
         }
 
         @Override
@@ -120,45 +141,60 @@ public class AdapterNavMenu extends RecyclerView.Adapter<AdapterNavMenu.ViewHold
         this.context = context;
         this.owner = owner;
         this.inflater = LayoutInflater.from(context);
+
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        boolean highlight_unread = prefs.getBoolean("highlight_unread", true);
+        int colorHighlight = prefs.getInt("highlight_color", Helper.resolveColor(context, R.attr.colorUnreadHighlight));
+        this.colorUnread = (highlight_unread ? colorHighlight : Helper.resolveColor(context, R.attr.colorUnread));
+        this.colorControlNormal = Helper.resolveColor(context, R.attr.colorControlNormal);
+        this.textColorSecondary = Helper.resolveColor(context, android.R.attr.textColorSecondary);
+        this.colorWarning = ColorUtils.setAlphaComponent(Helper.resolveColor(context, R.attr.colorWarning), 128);
+
         setHasStableIds(true);
     }
 
-    public void set(@NonNull List<NavMenuItem> menus) {
-        Log.i("Set nav menus=" + menus.size());
+    public void set(@NonNull List<NavMenuItem> menus, boolean expanded) {
+        Log.i("Set nav menus=" + menus.size() + " expanded=" + expanded);
 
         DiffUtil.DiffResult diff = DiffUtil.calculateDiff(new DiffCallback(items, menus), false);
 
-        items = menus;
+        this.expanded = expanded;
+        this.items = menus;
 
         diff.dispatchUpdatesTo(new ListUpdateCallback() {
             @Override
             public void onInserted(int position, int count) {
-                Log.i("Inserted @" + position + " #" + count);
+                Log.d("Inserted @" + position + " #" + count);
             }
 
             @Override
             public void onRemoved(int position, int count) {
-                Log.i("Removed @" + position + " #" + count);
+                Log.d("Removed @" + position + " #" + count);
             }
 
             @Override
             public void onMoved(int fromPosition, int toPosition) {
-                Log.i("Moved " + fromPosition + ">" + toPosition);
+                Log.d("Moved " + fromPosition + ">" + toPosition);
             }
 
             @Override
             public void onChanged(int position, int count, Object payload) {
-                Log.i("Changed @" + position + " #" + count);
+                Log.d("Changed @" + position + " #" + count);
             }
         });
         diff.dispatchUpdatesTo(this);
+    }
+
+    public void setExpanded(boolean expanded) {
+        this.expanded = expanded;
+        notifyDataSetChanged();
     }
 
     NavMenuItem get(int pos) {
         return items.get(pos);
     }
 
-    private class DiffCallback extends DiffUtil.Callback {
+    private static class DiffCallback extends DiffUtil.Callback {
         private List<NavMenuItem> prev = new ArrayList<>();
         private List<NavMenuItem> next = new ArrayList<>();
 
@@ -188,9 +224,7 @@ public class AdapterNavMenu extends RecyclerView.Adapter<AdapterNavMenu.ViewHold
         public boolean areContentsTheSame(int oldItemPosition, int newItemPosition) {
             NavMenuItem m1 = prev.get(oldItemPosition);
             NavMenuItem m2 = next.get(newItemPosition);
-            return m1.getIcon() == m2.getIcon() &&
-                    m1.getTitle() == m2.getTitle() &&
-                    Objects.equals(m1.getCount(), m2.getCount());
+            return m1.equals(m2);
         }
     }
 

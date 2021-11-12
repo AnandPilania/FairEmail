@@ -16,14 +16,22 @@ package eu.faircode.email;
     You should have received a copy of the GNU General Public License
     along with FairEmail.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2018-2019 by Marcel Bokhorst (M66B)
+    Copyright 2018-2021 by Marcel Bokhorst (M66B)
 */
+
+import static androidx.room.ForeignKey.CASCADE;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.net.Uri;
+import android.telephony.TelephonyManager;
+import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
+import androidx.preference.PreferenceManager;
 import androidx.room.Entity;
 import androidx.room.ForeignKey;
 import androidx.room.Index;
@@ -31,23 +39,33 @@ import androidx.room.PrimaryKey;
 
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 
+import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.concurrent.ExecutorService;
 import java.util.regex.Pattern;
 
 import javax.mail.Address;
 import javax.mail.Header;
 import javax.mail.Message;
 import javax.mail.MessagingException;
+import javax.mail.internet.AddressException;
 import javax.mail.internet.InternetAddress;
-
-import static androidx.room.ForeignKey.CASCADE;
+import javax.mail.internet.InternetHeaders;
 
 @Entity(
         tableName = EntityRule.TABLE_NAME,
@@ -78,6 +96,9 @@ public class EntityRule {
     public String condition;
     @NonNull
     public String action;
+    @NonNull
+    public Integer applied = 0;
+    public Long last_applied;
 
     static final int TYPE_SEEN = 1;
     static final int TYPE_UNSEEN = 2;
@@ -87,11 +108,22 @@ public class EntityRule {
     static final int TYPE_FLAG = 6;
     static final int TYPE_COPY = 7;
     static final int TYPE_SNOOZE = 8;
+    static final int TYPE_IGNORE = 9;
+    static final int TYPE_NOOP = 10;
+    static final int TYPE_KEYWORD = 11;
+    static final int TYPE_HIDE = 12;
+    static final int TYPE_IMPORTANCE = 13;
+    static final int TYPE_TTS = 14;
 
     static final String ACTION_AUTOMATION = BuildConfig.APPLICATION_ID + ".AUTOMATION";
     static final String EXTRA_RULE = "rule";
     static final String EXTRA_SENDER = "sender";
     static final String EXTRA_SUBJECT = "subject";
+    static final String EXTRA_RECEIVED = "received";
+
+    private static final long SEND_DELAY = 5000L; // milliseconds
+
+    private static ExecutorService executor = Helper.getBackgroundExecutor(1, "rule");
 
     boolean matches(Context context, EntityMessage message, Message imessage) throws MessagingException {
         try {
@@ -102,16 +134,40 @@ public class EntityRule {
             if (jsender != null) {
                 String value = jsender.getString("value");
                 boolean regex = jsender.getBoolean("regex");
+                boolean known = jsender.optBoolean("known");
 
                 boolean matches = false;
                 if (message.from != null) {
                     for (Address from : message.from) {
                         InternetAddress ia = (InternetAddress) from;
+                        String email = ia.getAddress();
                         String personal = ia.getPersonal();
-                        String formatted = ((personal == null ? "" : personal + " ") + "<" + ia.getAddress() + ">");
-                        if (matches(context, value, formatted, regex)) {
-                            matches = true;
-                            break;
+
+                        if (known) {
+                            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+                            boolean suggest_sent = prefs.getBoolean("suggest_sent", true);
+                            if (suggest_sent) {
+                                DB db = DB.getInstance(context);
+                                EntityContact contact =
+                                        db.contact().getContact(message.account, EntityContact.TYPE_TO, email);
+                                if (contact != null) {
+                                    Log.i(email + " is local contact");
+                                    matches = true;
+                                    break;
+                                }
+                            }
+
+                            if (!TextUtils.isEmpty(message.avatar)) {
+                                Log.i(email + " is Android contact");
+                                matches = true;
+                                break;
+                            }
+                        } else {
+                            String formatted = ((personal == null ? "" : personal + " ") + "<" + email + ">");
+                            if (matches(context, message, value, formatted, regex)) {
+                                matches = true;
+                                break;
+                            }
                         }
                     }
                 }
@@ -135,7 +191,7 @@ public class EntityRule {
                     InternetAddress ia = (InternetAddress) recipient;
                     String personal = ia.getPersonal();
                     String formatted = ((personal == null ? "" : personal + " ") + "<" + ia.getAddress() + ">");
-                    if (matches(context, value, formatted, regex)) {
+                    if (matches(context, message, value, formatted, regex)) {
                         matches = true;
                         break;
                     }
@@ -150,27 +206,89 @@ public class EntityRule {
                 String value = jsubject.getString("value");
                 boolean regex = jsubject.getBoolean("regex");
 
-                if (!matches(context, value, message.subject, regex))
+                if (!matches(context, message, value, message.subject, regex))
                     return false;
+            }
+
+            // Attachments
+            if (jcondition.optBoolean("attachments")) {
+                DB db = DB.getInstance(context);
+                List<EntityAttachment> attachments = db.attachment().getAttachments(message.id);
+                if (attachments.size() == 0)
+                    return false;
+
+                if (jcondition.has("mimetype")) {
+                    String mimeType = jcondition.getString("mimetype");
+                    if (!TextUtils.isEmpty(mimeType)) {
+                        boolean found = false;
+                        for (EntityAttachment attachment : attachments)
+                            if (mimeType.equalsIgnoreCase(attachment.getMimeType())) {
+                                found = true;
+                                break;
+                            }
+
+                        if (!found)
+                            return false;
+                    }
+                }
             }
 
             // Header
             JSONObject jheader = jcondition.optJSONObject("header");
-            if (jheader != null && imessage != null) {
+            if (jheader != null) {
                 String value = jheader.getString("value");
                 boolean regex = jheader.getBoolean("regex");
 
-                boolean matches = false;
-                Enumeration<Header> headers = imessage.getAllHeaders();
-                while (headers.hasMoreElements()) {
-                    Header header = headers.nextElement();
-                    String formatted = header.getName() + ": " + header.getValue();
-                    if (matches(context, value, formatted, regex)) {
-                        matches = true;
-                        break;
+                if (!regex &&
+                        value != null &&
+                        value.startsWith("$") &&
+                        value.endsWith("$")) {
+                    String keyword = value.substring(1, value.length() - 1);
+
+                    List<String> keywords = new ArrayList<>();
+                    if (message.ui_seen)
+                        keywords.add("$seen");
+                    if (message.ui_answered)
+                        keywords.add("$answered");
+                    if (message.ui_flagged)
+                        keywords.add("$flagged");
+                    if (message.ui_deleted)
+                        keywords.add("$deleted");
+                    if (message.infrastructure != null)
+                        keywords.add('@' + message.infrastructure);
+                    keywords.addAll(Arrays.asList(message.keywords));
+
+                    if (!keywords.contains(keyword))
+                        return false;
+                } else {
+                    boolean matches = false;
+                    Enumeration<Header> headers;
+                    if (imessage != null)
+                        headers = imessage.getAllHeaders();
+                    else if (message.headers != null) {
+                        ByteArrayInputStream bis = new ByteArrayInputStream(message.headers.getBytes());
+                        headers = new InternetHeaders(bis).getAllHeaders();
+                    } else
+                        throw new IllegalArgumentException(context.getString(R.string.title_rule_no_headers));
+                    while (headers.hasMoreElements()) {
+                        Header header = headers.nextElement();
+                        String formatted = header.getName() + ": " + header.getValue();
+                        if (matches(context, message, value, formatted, regex)) {
+                            matches = true;
+                            break;
+                        }
                     }
+                    if (!matches)
+                        return false;
                 }
-                if (!matches)
+            }
+
+            // Date
+            JSONObject jdate = jcondition.optJSONObject("date");
+            if (jdate != null) {
+                long after = jdate.optLong("after", 0);
+                long before = jdate.optLong("before", 0);
+                if ((after != 0 && message.received < after) || (before != 0 && message.received > before))
                     return false;
             }
 
@@ -180,25 +298,8 @@ public class EntityRule {
                 int start = jschedule.optInt("start", 0);
                 int end = jschedule.optInt("end", 0);
 
-                int dstart = start / (24 * 60);
-                int hstart = start / 60 % 24;
-                int mstart = start % 60;
-
-                int dend = end / (24 * 60);
-                int hend = end / 60 % 24;
-                int mend = end % 60;
-
-                Calendar cal_start = Calendar.getInstance();
-                cal_start.set(Calendar.DAY_OF_WEEK, Calendar.SUNDAY + dstart);
-                cal_start.set(Calendar.HOUR_OF_DAY, hstart);
-                cal_start.set(Calendar.MINUTE, mstart);
-                cal_start.set(Calendar.SECOND, 0);
-
-                Calendar cal_end = Calendar.getInstance();
-                cal_end.set(Calendar.DAY_OF_WEEK, Calendar.SUNDAY + dend);
-                cal_end.set(Calendar.HOUR_OF_DAY, hend);
-                cal_end.set(Calendar.MINUTE, mend);
-                cal_end.set(Calendar.SECOND, 0);
+                Calendar cal_start = getRelativeCalendar(start, message.received);
+                Calendar cal_end = getRelativeCalendar(end, message.received);
 
                 if (cal_start.getTimeInMillis() > cal_end.getTimeInMillis())
                     cal_start.add(Calendar.HOUR_OF_DAY, -7 * 24);
@@ -209,7 +310,13 @@ public class EntityRule {
             }
 
             // Safeguard
-            if (jsender == null && jrecipient == null && jsubject == null && jheader == null && jschedule == null)
+            if (jsender == null &&
+                    jrecipient == null &&
+                    jsubject == null &&
+                    !jcondition.optBoolean("attachments") &&
+                    jheader == null &&
+                    jdate == null &&
+                    jschedule == null)
                 return false;
         } catch (JSONException ex) {
             Log.e(ex);
@@ -219,42 +326,132 @@ public class EntityRule {
         return true;
     }
 
-    private boolean matches(Context context, String needle, String haystack, boolean regex) {
+    private boolean matches(Context context, EntityMessage message, String needle, String haystack, boolean regex) {
         boolean matched = false;
         if (needle != null && haystack != null)
             if (regex) {
-                Pattern pattern = Pattern.compile(needle);
+                Pattern pattern = Pattern.compile(needle, Pattern.DOTALL);
                 matched = pattern.matcher(haystack).matches();
             } else
                 matched = haystack.toLowerCase().contains(needle.trim().toLowerCase());
 
-        Log.i("Rule=" + name + " matched=" + matched +
-                " needle=" + needle + " haystack=" + haystack + " regex=" + regex);
+        if (matched)
+            EntityLog.log(context, EntityLog.Type.Rules, message,
+                    "Rule=" + name + ":" + order + " matched " +
+                            " needle=" + needle + " haystack=" + haystack + " regex=" + regex);
+        else
+            Log.i("Rule=" + name + ":" + order + " matched=" + matched +
+                    " needle=" + needle + " haystack=" + haystack + " regex=" + regex);
         return matched;
     }
 
-    boolean execute(Context context, EntityMessage message) throws JSONException, IOException {
+    boolean execute(Context context, EntityMessage message) throws JSONException {
+        boolean executed = _execute(context, message);
+        if (id != null && executed) {
+            DB db = DB.getInstance(context);
+            db.rule().applyRule(id, new Date().getTime());
+        }
+        return executed;
+    }
+
+    private boolean _execute(Context context, EntityMessage message) throws JSONException, IllegalArgumentException {
         JSONObject jaction = new JSONObject(action);
         int type = jaction.getInt("type");
         Log.i("Executing rule=" + type + ":" + name + " message=" + message.id);
 
         switch (type) {
+            case TYPE_NOOP:
+                return true;
             case TYPE_SEEN:
                 return onActionSeen(context, message, true);
             case TYPE_UNSEEN:
                 return onActionSeen(context, message, false);
+            case TYPE_HIDE:
+                return onActionHide(context, message);
+            case TYPE_IGNORE:
+                return onActionIgnore(context, message, jaction);
             case TYPE_SNOOZE:
                 return onActionSnooze(context, message, jaction);
             case TYPE_FLAG:
                 return onActionFlag(context, message, jaction);
+            case TYPE_IMPORTANCE:
+                return onActionImportance(context, message, jaction);
+            case TYPE_KEYWORD:
+                return onActionKeyword(context, message, jaction);
             case TYPE_MOVE:
                 return onActionMove(context, message, jaction);
             case TYPE_COPY:
                 return onActionCopy(context, message, jaction);
             case TYPE_ANSWER:
                 return onActionAnswer(context, message, jaction);
+            case TYPE_TTS:
+                return onActionTts(context, message, jaction);
             case TYPE_AUTOMATION:
                 return onActionAutomation(context, message, jaction);
+            default:
+                throw new IllegalArgumentException("Unknown rule type=" + type + " name=" + name);
+        }
+    }
+
+    void validate(Context context) throws JSONException, IllegalArgumentException {
+        JSONObject jargs = new JSONObject(action);
+        int type = jargs.getInt("type");
+
+        DB db = DB.getInstance(context);
+        switch (type) {
+            case TYPE_NOOP:
+                return;
+            case TYPE_SEEN:
+                return;
+            case TYPE_UNSEEN:
+                return;
+            case TYPE_HIDE:
+                return;
+            case TYPE_IGNORE:
+                return;
+            case TYPE_SNOOZE:
+                return;
+            case TYPE_FLAG:
+                return;
+            case TYPE_IMPORTANCE:
+                return;
+            case TYPE_KEYWORD:
+                String keyword = jargs.optString("keyword");
+                if (TextUtils.isEmpty(keyword))
+                    throw new IllegalArgumentException(context.getString(R.string.title_rule_keyword_missing));
+                return;
+            case TYPE_MOVE:
+            case TYPE_COPY:
+                long target = jargs.optLong("target", -1);
+                if (target < 0)
+                    throw new IllegalArgumentException(context.getString(R.string.title_rule_folder_missing));
+                EntityFolder folder = db.folder().getFolder(target);
+                if (folder == null)
+                    throw new IllegalArgumentException("Folder not found");
+                return;
+            case TYPE_ANSWER:
+                long iid = jargs.optLong("identity", -1);
+                if (iid < 0)
+                    throw new IllegalArgumentException(context.getString(R.string.title_rule_identity_missing));
+                EntityIdentity identity = db.identity().getIdentity(iid);
+                if (identity == null)
+                    throw new IllegalArgumentException("Identity not found");
+
+                long aid = jargs.optLong("answer", -1);
+                if (aid < 0) {
+                    String to = jargs.optString("to");
+                    if (TextUtils.isEmpty(to))
+                        throw new IllegalArgumentException(context.getString(R.string.title_rule_answer_missing));
+                } else {
+                    EntityAnswer answer = db.answer().getAnswer(aid);
+                    if (answer == null)
+                        throw new IllegalArgumentException("Template not found");
+                }
+                return;
+            case TYPE_TTS:
+                return;
+            case TYPE_AUTOMATION:
+                return;
             default:
                 throw new IllegalArgumentException("Unknown rule type=" + type);
         }
@@ -262,125 +459,352 @@ public class EntityRule {
 
     private boolean onActionSeen(Context context, EntityMessage message, boolean seen) {
         EntityOperation.queue(context, message, EntityOperation.SEEN, seen);
-        message.seen = seen;
+
+        message.ui_seen = seen;
+        message.ui_ignored = true;
+
         return true;
     }
 
-    private boolean onActionMove(Context context, EntityMessage message, JSONObject jargs) throws JSONException {
-        long target = jargs.getLong("target");
+    private boolean onActionHide(Context context, EntityMessage message) {
+        DB db = DB.getInstance(context);
+        db.message().setMessageSnoozed(message.id, Long.MAX_VALUE);
+        db.message().setMessageUiIgnored(message.id, true);
+        EntityMessage.snooze(context, message.id, Long.MAX_VALUE);
+
+        message.ui_snoozed = Long.MAX_VALUE;
+        message.ui_ignored = true;
+        return true;
+    }
+
+    private boolean onActionIgnore(Context context, EntityMessage message, JSONObject jargs) {
+        DB db = DB.getInstance(context);
+        db.message().setMessageUiIgnored(message.id, true);
+
+        message.ui_ignored = true;
+        return true;
+    }
+
+    private boolean onActionMove(Context context, EntityMessage message, JSONObject jargs) {
+        long target = jargs.optLong("target", -1);
         boolean seen = jargs.optBoolean("seen");
         boolean thread = jargs.optBoolean("thread");
 
         DB db = DB.getInstance(context);
         EntityFolder folder = db.folder().getFolder(target);
         if (folder == null)
-            throw new IllegalArgumentException("Rule move to folder not found");
+            throw new IllegalArgumentException("Rule move to folder not found name=" + name);
 
         List<EntityMessage> messages = db.message().getMessagesByThread(
                 message.account, message.thread, thread ? null : message.id, message.folder);
         for (EntityMessage threaded : messages)
             EntityOperation.queue(context, threaded, EntityOperation.MOVE, target, seen);
 
-        if (seen)
-            message.seen = true;
+        message.ui_hide = true;
+
+        if (seen) {
+            message.ui_seen = true;
+            message.ui_ignored = true;
+        }
 
         return true;
     }
 
-    private boolean onActionCopy(Context context, EntityMessage message, JSONObject jargs) throws JSONException {
-        long target = jargs.getLong("target");
+    private boolean onActionCopy(Context context, EntityMessage message, JSONObject jargs) {
+        long target = jargs.optLong("target", -1);
 
         DB db = DB.getInstance(context);
         EntityFolder folder = db.folder().getFolder(target);
         if (folder == null)
-            throw new IllegalArgumentException("Rule copy to folder not found");
+            throw new IllegalArgumentException("Rule copy to folder not found name=" + name);
 
         EntityOperation.queue(context, message, EntityOperation.COPY, target, false);
+
         return true;
     }
 
-    private boolean onActionAnswer(Context context, EntityMessage message, JSONObject jargs) throws JSONException, IOException {
-        long iid = jargs.getLong("identity");
-        long aid = jargs.getLong("answer");
-        boolean cc = (jargs.has("cc") && jargs.getBoolean("cc"));
+    private boolean onActionAnswer(Context context, EntityMessage message, JSONObject jargs) {
+        DB db = DB.getInstance(context);
+        String to = jargs.optString("to");
+        boolean attachments = jargs.optBoolean("attachments");
+
+        if (TextUtils.isEmpty(to) &&
+                message.auto_submitted != null && message.auto_submitted) {
+            EntityLog.log(context, EntityLog.Type.Rules, message,
+                    "Auto submitted rule=" + name);
+            return false;
+        }
+
+        if (!message.content)
+            EntityOperation.queue(context, message, EntityOperation.BODY);
+
+        boolean complete = true;
+        if (attachments)
+            for (EntityAttachment attachment : db.attachment().getAttachments(message.id))
+                if (!attachment.available) {
+                    complete = false;
+                    EntityOperation.queue(context, message, EntityOperation.ATTACHMENT, attachment.id);
+                }
+
+        if (!message.content || !complete) {
+            EntityOperation.queue(context, message, EntityOperation.RULE, this.id);
+            return true;
+        }
+
+        executor.submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    answer(context, EntityRule.this, message, jargs);
+                } catch (Throwable ex) {
+                    db.message().setMessageError(message.id, Log.formatThrowable(ex));
+                    Log.w(ex);
+                }
+            }
+        });
+
+        return true;
+    }
+
+    private static void answer(Context context, EntityRule rule, EntityMessage message, JSONObject jargs) throws JSONException, AddressException, IOException {
+        Log.i("Answering name=" + rule.name);
 
         DB db = DB.getInstance(context);
 
+        long iid = jargs.getLong("identity");
+        long aid = jargs.getLong("answer");
+        String to = jargs.optString("to");
+        boolean cc = jargs.optBoolean("cc");
+        boolean attachments = jargs.optBoolean("attachments");
+
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        boolean prefix_once = prefs.getBoolean("prefix_once", true);
+        boolean alt_re = prefs.getBoolean("alt_re", false);
+        boolean alt_fwd = prefs.getBoolean("alt_fwd", false);
+        boolean separate_reply = prefs.getBoolean("separate_reply", false);
+        boolean extended_reply = prefs.getBoolean("extended_reply", false);
+        boolean quote_reply = prefs.getBoolean("quote_reply", true);
+        boolean quote = (quote_reply && TextUtils.isEmpty(to));
+
         EntityIdentity identity = db.identity().getIdentity(iid);
         if (identity == null)
-            throw new IllegalArgumentException("Rule identity not found");
+            throw new IllegalArgumentException("Rule identity not found name=" + rule.name);
 
-        String body = EntityAnswer.getAnswerText(context, aid, message.from);
-        if (body == null)
-            throw new IllegalArgumentException("Rule answer not found");
+        EntityAnswer answer;
+        if (aid < 0) {
+            if (TextUtils.isEmpty(to))
+                throw new IllegalArgumentException("Rule template missing name=" + rule.name);
+
+            answer = new EntityAnswer();
+            answer.text = "";
+        } else {
+            answer = db.answer().getAnswer(aid);
+            if (answer == null)
+                throw new IllegalArgumentException("Rule template not found name=" + rule.name);
+        }
+
+        EntityFolder outbox = db.folder().getOutbox();
+        if (outbox == null) {
+            outbox = EntityFolder.getOutbox();
+            outbox.id = db.folder().insertFolder(outbox);
+        }
+
+        Address[] from = new InternetAddress[]{new InternetAddress(identity.email, identity.name, StandardCharsets.UTF_8.name())};
+
+        // Prevent loop
+        List<EntityMessage> messages = db.message().getMessagesByThread(
+                message.account, message.thread, null, null);
+        for (EntityMessage threaded : messages)
+            if (!threaded.id.equals(message.id) &&
+                    MessageHelper.equal(threaded.from, from)) {
+                EntityLog.log(context, EntityLog.Type.Rules, message,
+                        "Answer loop" +
+                                " name=" + answer.name +
+                                " from=" + MessageHelper.formatAddresses(from));
+                return;
+            }
 
         EntityMessage reply = new EntityMessage();
         reply.account = message.account;
-        reply.folder = db.folder().getOutbox().id;
+        reply.folder = outbox.id;
         reply.identity = identity.id;
         reply.msgid = EntityMessage.generateMessageId();
-        reply.references = (message.references == null ? "" : message.references + " ") + message.msgid;
-        reply.inreplyto = message.msgid;
-        reply.thread = message.thread;
-        reply.to = (message.reply == null || message.reply.length == 0 ? message.from : message.reply);
-        reply.from = new InternetAddress[]{new InternetAddress(identity.email, identity.name)};
+
+        if (TextUtils.isEmpty(to)) {
+            reply.references = (message.references == null ? "" : message.references + " ") + message.msgid;
+            reply.inreplyto = message.msgid;
+            reply.thread = message.thread;
+            reply.to = (message.reply == null || message.reply.length == 0 ? message.from : message.reply);
+        } else {
+            reply.wasforwardedfrom = message.msgid;
+            reply.thread = reply.msgid; // new thread
+            reply.to = MessageHelper.parseAddresses(context, to);
+        }
+
+        reply.from = from;
         if (cc)
             reply.cc = message.cc;
-        reply.subject = context.getString(R.string.title_subject_reply, message.subject == null ? "" : message.subject);
+        reply.unsubscribe = "mailto:" + identity.email;
+        reply.auto_submitted = true;
+
+        String subject = (message.subject == null ? "" : message.subject);
+        if (prefix_once)
+            EntityMessage.collapsePrefixes(context, message.language, subject, !TextUtils.isEmpty(to));
+
+        reply.subject = context.getString(
+                TextUtils.isEmpty(to)
+                        ? (alt_re ? R.string.title_subject_reply_alt : R.string.title_subject_reply)
+                        : (alt_fwd ? R.string.title_subject_forward_alt : R.string.title_subject_forward),
+                subject);
+
         reply.received = new Date().getTime();
 
         reply.sender = MessageHelper.getSortKey(reply.from);
-        Uri lookupUri = ContactInfo.getLookupUri(context, reply.from);
+        Uri lookupUri = ContactInfo.getLookupUri(reply.from);
         reply.avatar = (lookupUri == null ? null : lookupUri.toString());
 
         reply.id = db.message().insertMessage(reply);
-        Helper.writeText(reply.getFile(context), body);
+
+        String body = answer.getHtml(message.from);
+        Document msg = JsoupEx.parse(body);
+
+        Element div = msg.createElement("div");
+
+        Element p = message.getReplyHeader(context, msg, separate_reply, extended_reply);
+        div.appendChild(p);
+
+        Document answering = JsoupEx.parse(message.getFile(context));
+        Element e = answering.body();
+        if (quote) {
+            String style = e.attr("style");
+            style = HtmlHelper.mergeStyles(style, HtmlHelper.getQuoteStyle(e));
+            e.tagName("blockquote").attr("style", style);
+        } else
+            e.tagName("p");
+        div.appendChild(e);
+
+        msg.body().appendChild(div);
+
+        body = msg.outerHtml();
+
+        File file = reply.getFile(context);
+        Helper.writeText(file, body);
+        String text = HtmlHelper.getFullText(body);
+        reply.preview = HtmlHelper.getPreview(text);
+        reply.language = HtmlHelper.getLanguage(context, reply.subject, text);
         db.message().setMessageContent(reply.id,
                 true,
+                reply.language,
                 false,
-                HtmlHelper.getPreview(body),
+                reply.preview,
                 null);
 
+        if (attachments)
+            EntityAttachment.copy(context, message.id, reply.id);
+
         EntityOperation.queue(context, reply, EntityOperation.SEND);
-        return true;
+
+        // Batch send operations, wait until after commit
+        ServiceSend.schedule(context, SEND_DELAY);
     }
 
     private boolean onActionAutomation(Context context, EntityMessage message, JSONObject jargs) {
         String sender = (message.from == null || message.from.length == 0
                 ? null : ((InternetAddress) message.from[0]).getAddress());
 
+        // ISO 8601
+        DateFormat DTF = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'");
+        DTF.setTimeZone(java.util.TimeZone.getTimeZone("Zulu"));
+
         Intent automation = new Intent(ACTION_AUTOMATION);
         automation.putExtra(EXTRA_RULE, name);
         automation.putExtra(EXTRA_SENDER, sender);
         automation.putExtra(EXTRA_SUBJECT, message.subject);
+        automation.putExtra(EXTRA_RECEIVED, DTF.format(message.received));
 
-        Log.i("Sending " + automation);
+        List<String> extras = Log.getExtras(automation.getExtras());
+        EntityLog.log(context, EntityLog.Type.Rules, message,
+                "Sending " + automation + " " + TextUtils.join(" ", extras));
         context.sendBroadcast(automation);
+
         return true;
+    }
+
+    private boolean onActionTts(Context context, EntityMessage message, JSONObject jargs) {
+        DB db = DB.getInstance(context);
+
+        if (!message.content) {
+            EntityOperation.queue(context, message, EntityOperation.BODY);
+            EntityOperation.queue(context, message, EntityOperation.RULE, this.id);
+            return true;
+        }
+
+        executor.submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    speak(context, EntityRule.this, message);
+                } catch (Throwable ex) {
+                    db.message().setMessageError(message.id, Log.formatThrowable(ex));
+                    Log.w(ex);
+                }
+            }
+        });
+
+        return true;
+    }
+
+    private static void speak(Context context, EntityRule rule, EntityMessage message) throws IOException {
+        Log.i("Speaking name=" + rule.name);
+
+        TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+        int callState = tm.getCallState();
+        if (callState != TelephonyManager.CALL_STATE_IDLE) {
+            EntityLog.log(context, EntityLog.Type.Rules, message,
+                    "Call state=" + callState + " rule=" + rule.name);
+            return;
+        }
+
+        Locale locale = (message.language == null ? Locale.getDefault() : new Locale(message.language));
+
+        Configuration configuration = new Configuration(context.getResources().getConfiguration());
+        configuration.setLocale(locale);
+        Resources res = context.createConfigurationContext(configuration).getResources();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(res.getString(R.string.title_rule_tts_prefix)).append(". ");
+
+        if (message.from != null && message.from.length > 0)
+            sb.append(res.getString(R.string.title_rule_tts_from))
+                    .append(' ').append(MessageHelper.formatAddressesShort(message.from)).append(". ");
+
+        if (!TextUtils.isEmpty(message.subject))
+            sb.append(res.getString(R.string.title_rule_tts_subject))
+                    .append(' ').append(message.subject).append(". ");
+
+        String body = Helper.readText(message.getFile(context));
+        String text = HtmlHelper.getFullText(body);
+        String preview = HtmlHelper.getPreview(text);
+
+        if (!TextUtils.isEmpty(preview))
+            sb.append(res.getString(R.string.title_rule_tts_content))
+                    .append(' ').append(preview);
+
+        TTSHelper.speak(context, "rule:" + message.id, sb.toString(), locale);
     }
 
     private boolean onActionSnooze(Context context, EntityMessage message, JSONObject jargs) throws JSONException {
         int duration = jargs.getInt("duration");
         boolean schedule_end = jargs.optBoolean("schedule_end", false);
+        boolean seen = jargs.optBoolean("seen", false);
 
         long wakeup;
         if (schedule_end) {
             JSONObject jcondition = new JSONObject(condition);
             JSONObject jschedule = jcondition.optJSONObject("schedule");
 
-            if (jschedule == null)
-                throw new IllegalArgumentException("Rule snooze schedule not found");
-
-            int end = jschedule.optInt("end", 0);
-            int day = end / (24 * 60);
-            int hour = end / 60 % 24;
-            int minute = end % 60;
-
-            Calendar cal = Calendar.getInstance();
-            cal.set(Calendar.DAY_OF_WEEK, Calendar.SUNDAY + day);
-            cal.set(Calendar.HOUR_OF_DAY, hour);
-            cal.set(Calendar.MINUTE, minute);
-            cal.set(Calendar.SECOND, 0);
+            int end = (jschedule == null ? 0 : jschedule.optInt("end", 0));
+            Calendar cal = getRelativeCalendar(end, message.received);
             wakeup = cal.getTimeInMillis() + duration * 3600 * 1000L;
         } else
             wakeup = message.received + duration * 3600 * 1000L;
@@ -390,8 +814,13 @@ public class EntityRule {
 
         DB db = DB.getInstance(context);
         db.message().setMessageSnoozed(message.id, wakeup);
+        db.message().setMessageUiIgnored(message.id, true);
         EntityMessage.snooze(context, message.id, wakeup);
-        onActionSeen(context, message, true);
+
+        message.ui_snoozed = wakeup;
+
+        if (seen)
+            onActionSeen(context, message, true);
 
         return true;
     }
@@ -399,7 +828,135 @@ public class EntityRule {
     private boolean onActionFlag(Context context, EntityMessage message, JSONObject jargs) throws JSONException {
         Integer color = (jargs.has("color") && !jargs.isNull("color")
                 ? jargs.getInt("color") : null);
+
         EntityOperation.queue(context, message, EntityOperation.FLAG, true, color);
+
+        message.ui_flagged = true;
+        message.color = color;
+
+        return true;
+    }
+
+    private boolean onActionImportance(Context context, EntityMessage message, JSONObject jargs) throws JSONException {
+        Integer importance = jargs.getInt("value");
+        if (EntityMessage.PRIORITIY_NORMAL.equals(importance))
+            importance = null;
+
+        DB db = DB.getInstance(context);
+        db.message().setMessageImportance(message.id, importance);
+
+        message.importance = importance;
+
+        return true;
+    }
+
+    private boolean onActionKeyword(Context context, EntityMessage message, JSONObject jargs) throws JSONException {
+        String keyword = jargs.getString("keyword");
+        if (TextUtils.isEmpty(keyword))
+            throw new IllegalArgumentException("Keyword missing rule=" + name);
+
+        EntityOperation.queue(context, message, EntityOperation.KEYWORD, keyword, true);
+
+        return true;
+    }
+
+    private static Calendar getRelativeCalendar(int minutes, long reference) {
+        int d = minutes / (24 * 60);
+        int h = minutes / 60 % 24;
+        int m = minutes % 60;
+
+        Calendar cal = Calendar.getInstance();
+        if (reference > cal.getTimeInMillis() - 7 * 24 * 3600 * 1000L)
+            cal.setTimeInMillis(reference);
+        long time = cal.getTimeInMillis();
+
+        cal.set(Calendar.DAY_OF_WEEK, Calendar.SUNDAY + d);
+        if (cal.getTimeInMillis() < time)
+            cal.add(Calendar.HOUR_OF_DAY, 7 * 24);
+
+        cal.set(Calendar.HOUR_OF_DAY, h);
+        cal.set(Calendar.MINUTE, m);
+        cal.set(Calendar.SECOND, 0);
+
+        return cal;
+    }
+
+    static EntityRule blockSender(Context context, EntityMessage message, EntityFolder junk, boolean block_domain) throws JSONException {
+        if (message.from == null || message.from.length == 0)
+            return null;
+
+        String sender = ((InternetAddress) message.from[0]).getAddress();
+        String name = MessageHelper.formatAddresses(new Address[]{message.from[0]});
+
+        if (TextUtils.isEmpty(sender) ||
+                !Helper.EMAIL_ADDRESS.matcher(sender).matches())
+            return null;
+
+        boolean regex = false;
+        if (block_domain) {
+            int at = sender.indexOf('@');
+            if (at > 0) {
+                regex = true;
+                sender = ".*@.*" + sender.substring(at + 1) + ".*";
+            }
+        }
+
+        JSONObject jsender = new JSONObject();
+        jsender.put("value", sender);
+        jsender.put("regex", regex);
+
+        JSONObject jcondition = new JSONObject();
+        jcondition.put("sender", jsender);
+
+        JSONObject jaction = new JSONObject();
+        jaction.put("type", TYPE_MOVE);
+        jaction.put("target", junk.id);
+        jaction.put("seen", true);
+
+        EntityRule rule = new EntityRule();
+        rule.folder = message.folder;
+        rule.name = context.getString(R.string.title_block, name);
+        rule.order = 1000;
+        rule.enabled = true;
+        rule.stop = true;
+        rule.condition = jcondition.toString();
+        rule.action = jaction.toString();
+
+        return rule;
+    }
+
+    boolean isBlockingSender(EntityMessage message, EntityFolder junk) throws JSONException {
+        if (message.from == null || message.from.length == 0)
+            return false;
+
+        String sender = ((InternetAddress) message.from[0]).getAddress();
+        if (sender == null)
+            return false;
+
+        JSONObject jcondition = new JSONObject(condition);
+        if (!jcondition.has("sender"))
+            return false;
+        JSONObject jsender = jcondition.getJSONObject("sender");
+        String value = jsender.optString("value");
+        boolean regex = jsender.optBoolean("regex");
+
+        if (regex) {
+            Pattern pattern = Pattern.compile(value, Pattern.DOTALL);
+            if (!pattern.matcher(sender).matches())
+                return false;
+        } else {
+            int at = sender.indexOf('@');
+            String domain = (at < 0 ? sender : sender.substring(at));
+            if (!sender.equals(value) && !domain.equals(value))
+                return false;
+        }
+
+        JSONObject jaction = new JSONObject(action);
+        if (jaction.optInt("type", -1) != TYPE_MOVE)
+            return false;
+        if (jaction.optLong("target", -1) != junk.id)
+            return false;
+
         return true;
     }
 
@@ -413,7 +970,9 @@ public class EntityRule {
                     this.enabled == other.enabled &&
                     this.stop == other.stop &&
                     this.condition.equals(other.condition) &&
-                    this.action.equals(other.action);
+                    this.action.equals(other.action) &&
+                    this.applied.equals(other.applied) &&
+                    Objects.equals(this.last_applied, other.last_applied);
         } else
             return false;
     }
@@ -427,6 +986,8 @@ public class EntityRule {
         json.put("stop", stop);
         json.put("condition", condition);
         json.put("action", action);
+        json.put("applied", applied);
+        json.put("last_applied", last_applied);
         return json;
     }
 
@@ -439,6 +1000,9 @@ public class EntityRule {
         rule.stop = json.getBoolean("stop");
         rule.condition = json.getString("condition");
         rule.action = json.getString("action");
+        rule.applied = json.optInt("applied", 0);
+        if (json.has("last_applied") && !json.isNull("last_applied"))
+            rule.last_applied = json.getLong("last_applied");
         return rule;
     }
 }
